@@ -1,0 +1,136 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "triage"
+version = "0.1.0"
+description = "AIOps incident response agent on AWS Bedrock AgentCore with a custom MCP server"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+authors = [
+    {name = "Dimitrije", email = "dimitrije@example.com"},  # FILL: real email
+]
+keywords = ["aiops", "bedrock", "agentcore", "mcp", "sre", "devops"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Monitoring",
+    "Topic :: System :: Systems Administration",
+]
+dependencies = [
+    "boto3>=1.35",
+    # MCP server dependencies — added as you build
+    # "mcp>=...",
+    # "bedrock-agentcore>=...",
+    # "opentelemetry-api>=1.27",
+    # "opentelemetry-sdk>=1.27",
+    # "pydantic>=2.7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=4.1",
+    "ruff>=0.6",
+    "mypy>=1.10",
+    "pre-commit>=3.7",
+    "types-boto3>=1.35",
+]
+
+[project.urls]
+Homepage = "https://github.com/Dimi-DV/triage"
+Repository = "https://github.com/Dimi-DV/triage"
+Issues = "https://github.com/Dimi-DV/triage/issues"
+
+# ----- uv -----
+[tool.uv]
+package = true
+
+# ----- Hatch build (wheel target uses src layout) -----
+[tool.hatch.build.targets.wheel]
+packages = ["src/triage"]
+
+# ----- Ruff: lint + format (replaces black, flake8, isort) -----
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # Pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear (likely-bugs)
+    "C4",   # flake8-comprehensions
+    "UP",   # pyupgrade
+    "N",    # pep8-naming
+    "S",    # flake8-bandit (security)
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific
+]
+ignore = [
+    "E501",  # line too long — formatter handles this
+    "S101",  # use of assert — fine in tests
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S", "N"]  # tests can use asserts and looser naming
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true
+
+# ----- mypy: strict type checking -----
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unused_configs = true
+no_implicit_optional = true
+disallow_untyped_defs = true
+check_untyped_defs = true
+show_error_codes = true
+files = ["src"]
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false  # tests don't require type annotations
+
+# ----- pytest -----
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+]
+asyncio_mode = "auto"
+markers = [
+    "unit: unit tests (fast, no AWS calls)",
+    "integration: integration tests (may hit AWS, real or mocked)",
+    "eval: eval-suite tests (run against deployed agent)",
+]
+
+# ----- coverage -----
+[tool.coverage.run]
+branch = true
+source = ["src/triage"]
+omit = ["*/tests/*", "*/__init__.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]

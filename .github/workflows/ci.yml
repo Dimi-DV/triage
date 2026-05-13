@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Cancel superseded runs on the same branch
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python (lint, typecheck, test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Install dependencies
+        run: uv sync --all-extras --frozen
+
+      - name: Lint (ruff check)
+        run: uv run ruff check .
+
+      - name: Format check (ruff format --check)
+        run: uv run ruff format --check .
+
+      - name: Type check (mypy strict)
+        run: uv run mypy src/
+
+      - name: Test (pytest)
+        run: uv run pytest --cov=src --cov-report=xml --cov-report=term
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+          retention-days: 7
+
+  terraform:
+    name: Terraform (fmt, validate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.14.7"
+
+      - name: Terraform fmt check (recursive)
+        run: terraform fmt -check -recursive terraform/
+
+      - name: Terraform validate (stack)
+        working-directory: terraform/stack
+        run: |
+          terraform init -backend=false
+          terraform validate
+
+      - name: Terraform validate (overlays)
+        run: |
+          for dir in terraform/overlays/*/; do
+            if [ -d "$dir" ] && [ -n "$(ls -A "$dir"/*.tf 2>/dev/null)" ]; then
+              echo "Validating $dir"
+              (cd "$dir" && terraform init -backend=false && terraform validate)
+            fi
+          done
+
+  hooks:
+    name: Pre-commit hooks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Run pre-commit on all files
+        run: |
+          uv tool install pre-commit
+          uv tool run pre-commit run --all-files --show-diff-on-failure
+
+  shellcheck:
+    name: Shellcheck (hooks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run shellcheck on .claude/hooks/
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: '.claude/hooks'

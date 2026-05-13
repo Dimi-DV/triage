@@ -1,0 +1,66 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+.hypothesis/
+
+# Terraform
+**/.terraform/
+**/.terraform.lock.hcl
+**/terraform.tfstate
+**/terraform.tfstate.backup
+**/terraform.tfstate.*.backup
+**/tfplan
+**/*.tfplan
+**/.last-tf-plan
+*.tfvars
+*.tfvars.json
+!example.tfvars
+!example.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# AWS / secrets
+.aws/credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+.secrets.baseline.local
+
+# Claude Code per-user state
+.claude/cache/
+.claude/local/
+.claude/session/
+
+# IDEs
+.idea/
+.vscode/*
+!.vscode/settings.json.example
+!.vscode/extensions.json
+
+# OS
+.DS_Store
+._*
+Thumbs.db
+
+# Project
+docs/journal/*-draft.md
+*.log
+logs/
+audit-local/

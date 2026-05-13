@@ -1,0 +1,60 @@
+version: 2
+
+updates:
+  # ----- Python dependencies via uv -----
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    groups:
+      python-dev-deps:
+        patterns:
+          - "ruff"
+          - "mypy"
+          - "pytest*"
+          - "pre-commit"
+          - "types-*"
+        update-types:
+          - "minor"
+          - "patch"
+      python-runtime-deps:
+        patterns:
+          - "boto3*"
+          - "mcp*"
+          - "bedrock-agentcore*"
+          - "opentelemetry-*"
+          - "pydantic*"
+        update-types:
+          - "minor"
+          - "patch"
+    labels:
+      - "dependencies"
+      - "python"
+
+  # ----- GitHub Actions -----
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    groups:
+      gh-actions:
+        patterns:
+          - "*"
+    labels:
+      - "dependencies"
+      - "github-actions"
+
+  # ----- Terraform (HCP private registry / module sources) -----
+  - package-ecosystem: "terraform"
+    directory: "/terraform/stack"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "terraform"
