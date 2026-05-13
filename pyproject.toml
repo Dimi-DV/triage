@@ -10,7 +10,7 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
 authors = [
-    {name = "Dimitrije", email = "dimitrije@example.com"},  # FILL: real email
+    {name = "Dimitrije", email = "dimitrije.vedda@outlook.com"},
 ]
 keywords = ["aiops", "bedrock", "agentcore", "mcp", "sre", "devops"]
 classifiers = [

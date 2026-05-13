@@ -15,3 +15,9 @@ variable "project_name" {
   type        = string
   default     = "triage"
 }
+
+variable "vpc_cidr" {
+  description = "CIDR block for the Multi-AZ production VPC"
+  type        = string
+  default     = "10.0.0.0/16"
+}
