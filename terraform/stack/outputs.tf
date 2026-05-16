@@ -111,3 +111,42 @@ output "slack_bot_token_secret_id" {
   description = "Secret name used as TRIAGE_SLACK_SECRET_ID by the MCP task and agent runtime"
   value       = aws_secretsmanager_secret.slack_bot_token.name
 }
+
+# ---------------------------------------------------------------------------
+# Day 34 afternoon — alarm path + agent runtime outputs
+# ---------------------------------------------------------------------------
+
+output "alarms_sns_topic_arn" {
+  description = "SNS topic ARN that CloudWatch alarms publish to (Lambda subscribed)"
+  value       = aws_sns_topic.alarms.arn
+}
+
+output "alarm_bridge_lambda_arn" {
+  description = "Lambda ARN for the SNS → AgentCore Runtime bridge"
+  value       = aws_lambda_function.alarm_bridge.arn
+}
+
+output "alarm_bridge_dlq_url" {
+  description = "DLQ for alarm-bridge failures"
+  value       = aws_sqs_queue.alarm_bridge_dlq.url
+}
+
+output "agent_runtime_role_arn" {
+  description = "IAM role AgentCore Runtime assumes when it starts the agent container"
+  value       = aws_iam_role.agent_runtime.arn
+}
+
+output "agent_repository_url" {
+  description = "ECR repository URL for the agent runtime container image"
+  value       = aws_ecr_repository.agent.repository_url
+}
+
+output "agentcore_runtime_arn_parameter" {
+  description = "SSM Parameter Store name where scripts/provision_agentcore.py writes the Runtime ARN"
+  value       = aws_ssm_parameter.runtime_arn.name
+}
+
+output "demo_alarm_name" {
+  description = "CloudWatch alarm used for the hello-world manual trigger"
+  value       = aws_cloudwatch_metric_alarm.demo.alarm_name
+}
