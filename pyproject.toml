@@ -27,8 +27,16 @@ dependencies = [
     "pydantic>=2.7",
     "opentelemetry-api>=1.27",
     "opentelemetry-sdk>=1.27",
-    # AgentCore Runtime wiring lands on Day 34 afternoon
-    # "bedrock-agentcore>=...",
+    # Streamable HTTP transport for the MCP server (production) needs an
+    # ASGI server; FastMCP pulls starlette transitively but we run it here.
+    "uvicorn>=0.30",
+    "starlette>=0.40",
+    # JWT validation against AgentCore Identity's JWKS.
+    "pyjwt[crypto]>=2.9",
+    # Slack delivery for the runbooks_api_post_to_slack write tool.
+    "slack-sdk>=3.27",
+    # MCP-over-HTTP client in the agent runtime container.
+    "httpx>=0.27",
 ]
 
 [project.optional-dependencies]
@@ -39,8 +47,8 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.10",
     "pre-commit>=3.7",
-    "types-boto3[cloudwatch]>=1.35",
-    "moto[cloudwatch]>=5.0",
+    "types-boto3[cloudwatch,s3,secretsmanager]>=1.35",
+    "moto[cloudwatch,s3,secretsmanager]>=5.0",
 ]
 
 [project.urls]

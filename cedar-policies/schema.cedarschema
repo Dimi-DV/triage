@@ -1,0 +1,23 @@
+// Cedar entity + action schema for the Triage AgentCore Gateway.
+// Uploaded alongside agent-tools.cedar by scripts/provision_agentcore.py.
+
+namespace Triage {
+    entity Agent;
+    entity CloudWatchMetric;
+    entity SlackChannel;
+
+    action "TriageMcpGateway___metrics_api_get_metric_statistics"
+        appliesTo {
+            principal: [Agent],
+            resource: [CloudWatchMetric]
+        };
+
+    action "TriageMcpGateway___runbooks_api_post_to_slack"
+        appliesTo {
+            principal: [Agent],
+            resource: [SlackChannel],
+            context: {
+                severity: String
+            }
+        };
+}

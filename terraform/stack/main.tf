@@ -450,9 +450,12 @@ resource "aws_lb_target_group" "app" {
   vpc_id      = aws_vpc.main.id
   target_type = "ip"
 
+  # Health-check the MCP server's /health endpoint (added Day 34 afternoon).
+  # The MCP app itself serves only /mcp/*; /health is mounted by __main__.py
+  # outside the auth middleware so the ALB probe never carries a Bearer token.
   health_check {
-    path                = "/"
-    matcher             = "200-399"
+    path                = "/health"
+    matcher             = "200"
     healthy_threshold   = 2
     unhealthy_threshold = 3
     interval            = 30

@@ -61,3 +61,22 @@ def wrap_boto_error(exc: BaseException, namespace_error_cls: type[ToolError]) ->
     if isinstance(exc, BotoCoreError):
         return namespace_error_cls(str(exc), code="BotoCoreError")
     return namespace_error_cls(str(exc), code=exc.__class__.__name__)
+
+
+def wrap_slack_error(exc: BaseException, namespace_error_cls: type[ToolError]) -> ToolError:
+    """Map a slack_sdk.errors.SlackApiError to the caller's namespace error type.
+
+    Imports `SlackApiError` lazily so this module stays useful in contexts that
+    do not have slack-sdk installed (e.g. the Lambda alarm-bridge package).
+    """
+    from slack_sdk.errors import SlackApiError
+
+    if isinstance(exc, SlackApiError):
+        response = exc.response or {}
+        code = str(response.get("error", "SlackApiError"))
+        method = getattr(response, "api_url", None) or response.get("method")
+        details: dict[str, Any] = {"slack_error": code}
+        if method:
+            details["api_url"] = str(method)
+        return namespace_error_cls(str(exc), code=code, details=details)
+    return namespace_error_cls(str(exc), code=exc.__class__.__name__)
