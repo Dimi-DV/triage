@@ -16,6 +16,9 @@ repos:
     hooks:
       - id: mypy
         args: [--config-file=pyproject.toml]
+        # Match the [tool.mypy] files=["src"] intent — CI also runs mypy src/
+        # only. Tests stay loose (no type annotations required); src/ is strict.
+        files: '^src/'
         additional_dependencies:
           - boto3-stubs
           - types-PyYAML
