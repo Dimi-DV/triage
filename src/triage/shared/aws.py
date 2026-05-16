@@ -1,0 +1,24 @@
+"""Typed boto3 client factories.
+
+Region is pinned to us-east-1 (single-region build per the v3 spec) and a
+short user-agent suffix tags traffic that originates from this server.
+"""
+
+from __future__ import annotations
+
+import boto3
+from botocore.config import Config
+from types_boto3_cloudwatch.client import CloudWatchClient
+
+AWS_REGION = "us-east-1"
+USER_AGENT_SUFFIX = "triage-mcp-server/0.1.0"
+
+_default_config = Config(
+    region_name=AWS_REGION,
+    user_agent_extra=USER_AGENT_SUFFIX,
+    retries={"mode": "standard", "max_attempts": 3},
+)
+
+
+def get_cloudwatch_client() -> CloudWatchClient:
+    return boto3.client("cloudwatch", config=_default_config)

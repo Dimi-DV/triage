@@ -1,4 +1,4 @@
-.PHONY: help install lint format typecheck test test-cov check eval eval-scenario plan apply destroy clean fis-list
+.PHONY: help install lint format typecheck test test-cov check run-mcp-server eval eval-scenario plan apply destroy clean fis-list
 
 # Default target: show help
 .DEFAULT_GOAL := help
@@ -35,6 +35,9 @@ test-cov: ## Run pytest with coverage report (HTML + terminal)
 	uv run pytest --cov=src --cov-report=html --cov-report=term
 
 check: lint format typecheck test ## Run all quality gates (CI mirror)
+
+run-mcp-server: ## Run the MCP server locally (stdio transport)
+	uv run python -m triage.mcp_server
 
 # ============================================================
 # Evaluation
