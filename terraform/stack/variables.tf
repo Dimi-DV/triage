@@ -60,3 +60,9 @@ variable "rds_engine_version" {
   type        = string
   default     = "16.4"
 }
+
+variable "app_port" {
+  description = "TCP port the app container listens on. ALB target group + app SG ingress reference this."
+  type        = number
+  default     = 8080
+}

@@ -7,8 +7,17 @@
 #   - Route 53 hosted zone + ACM cert (DNS-validated)
 #   - Audit S3 bucket with Object Lock
 #
-# Day 33 morning adds: ALB + HTTPS listener + WAF + CloudWatch agent +
-# Route 53 A/AAAA records pointing the apex/www at the ALB.
+# Day 33 morning scope:
+#   - ALB (internet-facing) + HTTPS listener + HTTP→HTTPS redirect
+#   - WAF v2 with AWSManagedRulesCommonRuleSet, REGIONAL scope, native block
+#   - Route 53 A records for apex + www aliased to the ALB
+#   - First ingress rule on the empty app SG (ALB→app on var.app_port)
+#   - ECS cluster with Container Insights (task definition is Day 34)
+#
+# Fargate observability translation: v3 spec line 167 says "CloudWatch agent
+# installed via user data." Fargate has no user data — the equivalent is
+# Container Insights at the cluster (this PR) + awslogs driver in the Day 34
+# task definition.
 #
 # Dev-mode knobs flagged inline. Production flips:
 #   - Object Lock: GOVERNANCE 1-day → COMPLIANCE 7-year
@@ -194,6 +203,45 @@ resource "aws_vpc_security_group_ingress_rule" "rds_from_app" {
   description                  = "Postgres from app tier SG"
 }
 
+# ALB SG — public-facing edge.
+resource "aws_security_group" "alb" {
+  name        = "${local.name_prefix}-alb-sg"
+  description = "Public-facing ALB ingress"
+  vpc_id      = aws_vpc.main.id
+
+  tags = {
+    Name = "${local.name_prefix}-alb-sg"
+  }
+}
+
+resource "aws_vpc_security_group_ingress_rule" "alb_https" {
+  security_group_id = aws_security_group.alb.id
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "tcp"
+  from_port         = 443
+  to_port           = 443
+  description       = "HTTPS from the internet"
+}
+
+resource "aws_vpc_security_group_ingress_rule" "alb_http" {
+  security_group_id = aws_security_group.alb.id
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "tcp"
+  from_port         = 80
+  to_port           = 80
+  description       = "HTTP from the internet (ALB listener redirects to 443)"
+}
+
+# First rule on the Day 32 empty app SG.
+resource "aws_vpc_security_group_ingress_rule" "app_from_alb" {
+  security_group_id            = aws_security_group.app.id
+  referenced_security_group_id = aws_security_group.alb.id
+  ip_protocol                  = "tcp"
+  from_port                    = var.app_port
+  to_port                      = var.app_port
+  description                  = "App traffic from the ALB"
+}
+
 # ---------------------------------------------------------------------------
 # RDS — Postgres, Multi-AZ
 # ---------------------------------------------------------------------------
@@ -250,7 +298,31 @@ resource "aws_route53_zone" "main" {
   }
 }
 
-# A/AAAA records for the apex and www are added on Day 33 once the ALB exists.
+# A records for apex + www, aliased to the ALB. The ALB resource is defined
+# below; Terraform resolves the dependency via the DAG, file order is fine.
+resource "aws_route53_record" "apex_a" {
+  zone_id = aws_route53_zone.main.zone_id
+  name    = var.domain_name
+  type    = "A"
+
+  alias {
+    name                   = aws_lb.main.dns_name
+    zone_id                = aws_lb.main.zone_id
+    evaluate_target_health = true
+  }
+}
+
+resource "aws_route53_record" "www_a" {
+  zone_id = aws_route53_zone.main.zone_id
+  name    = "www.${var.domain_name}"
+  type    = "A"
+
+  alias {
+    name                   = aws_lb.main.dns_name
+    zone_id                = aws_lb.main.zone_id
+    evaluate_target_health = true
+  }
+}
 
 # ---------------------------------------------------------------------------
 # ACM certificate — DNS-validated
@@ -348,4 +420,143 @@ resource "aws_s3_bucket_object_lock_configuration" "audit" {
   }
 
   depends_on = [aws_s3_bucket_versioning.audit]
+}
+
+# ---------------------------------------------------------------------------
+# Application Load Balancer
+# ---------------------------------------------------------------------------
+
+resource "aws_lb" "main" {
+  name               = "${local.name_prefix}-alb"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.alb.id]
+  subnets            = aws_subnet.public[*].id
+
+  # Dev: deletion protection off so terraform destroy works. Production: true.
+  enable_deletion_protection = false
+
+  tags = {
+    Name = "${local.name_prefix}-alb"
+  }
+}
+
+# target_type = "ip" is required for Fargate (awsvpc network mode).
+# Day 34 attaches the ECS service to this target group.
+resource "aws_lb_target_group" "app" {
+  name        = "${local.name_prefix}-app-tg"
+  port        = var.app_port
+  protocol    = "HTTP"
+  vpc_id      = aws_vpc.main.id
+  target_type = "ip"
+
+  health_check {
+    path                = "/"
+    matcher             = "200-399"
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+    interval            = 30
+    timeout             = 5
+  }
+
+  tags = {
+    Name = "${local.name_prefix}-app-tg"
+  }
+}
+
+resource "aws_lb_listener" "https" {
+  load_balancer_arn = aws_lb.main.arn
+  port              = 443
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+  certificate_arn   = aws_acm_certificate_validation.main.certificate_arn
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.app.arn
+  }
+}
+
+resource "aws_lb_listener" "http_redirect" {
+  load_balancer_arn = aws_lb.main.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type = "redirect"
+
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
+  }
+}
+
+# ---------------------------------------------------------------------------
+# WAF v2 — AWS Managed Common Rule Set, REGIONAL scope, native block
+# ---------------------------------------------------------------------------
+
+resource "aws_wafv2_web_acl" "main" {
+  name        = "${local.name_prefix}-waf"
+  description = "Edge WAF — AWS Managed Common Rule Set"
+  scope       = "REGIONAL"
+
+  default_action {
+    allow {}
+  }
+
+  rule {
+    name     = "AWSManagedRulesCommonRuleSet"
+    priority = 0
+
+    override_action {
+      none {}
+    }
+
+    statement {
+      managed_rule_group_statement {
+        name        = "AWSManagedRulesCommonRuleSet"
+        vendor_name = "AWS"
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      sampled_requests_enabled   = true
+      metric_name                = "${local.name_prefix}-waf-common"
+    }
+  }
+
+  visibility_config {
+    cloudwatch_metrics_enabled = true
+    sampled_requests_enabled   = true
+    metric_name                = "${local.name_prefix}-waf"
+  }
+
+  tags = {
+    Name = "${local.name_prefix}-waf"
+  }
+}
+
+resource "aws_wafv2_web_acl_association" "main" {
+  resource_arn = aws_lb.main.arn
+  web_acl_arn  = aws_wafv2_web_acl.main.arn
+}
+
+# ---------------------------------------------------------------------------
+# ECS cluster — Container Insights enabled (task definition is Day 34)
+# ---------------------------------------------------------------------------
+
+resource "aws_ecs_cluster" "main" {
+  name = "${local.name_prefix}-cluster"
+
+  setting {
+    name  = "containerInsights"
+    value = "enabled"
+  }
+
+  tags = {
+    Name = "${local.name_prefix}-cluster"
+  }
 }
