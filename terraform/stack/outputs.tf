@@ -47,3 +47,33 @@ output "route53_name_servers" {
   description = "Route 53 NS records — set these at the registrar to delegate the zone. ACM validation hangs until delegation propagates."
   value       = aws_route53_zone.main.name_servers
 }
+
+output "alb_dns_name" {
+  description = "ALB DNS name — apex + www A records alias to this"
+  value       = aws_lb.main.dns_name
+}
+
+output "alb_arn" {
+  description = "ALB ARN — WAF web ACL associates to this"
+  value       = aws_lb.main.arn
+}
+
+output "alb_zone_id" {
+  description = "ALB canonical hosted zone ID (used by Route 53 alias records)"
+  value       = aws_lb.main.zone_id
+}
+
+output "ecs_cluster_name" {
+  description = "ECS cluster name (Day 34 service references this)"
+  value       = aws_ecs_cluster.main.name
+}
+
+output "ecs_cluster_arn" {
+  description = "ECS cluster ARN"
+  value       = aws_ecs_cluster.main.arn
+}
+
+output "waf_web_acl_arn" {
+  description = "WAF v2 web ACL ARN (associated to the ALB)"
+  value       = aws_wafv2_web_acl.main.arn
+}
