@@ -42,6 +42,21 @@ def moto_cloudwatch(aws_credentials_env: None) -> Iterator[Any]:
 
 
 @pytest.fixture
+def moto_aws_session(aws_credentials_env: None) -> Iterator[Any]:
+    """Open a single `mock_aws()` context and yield boto3.
+
+    Use this when a test needs multiple AWS services mocked together
+    (e.g. S3 + Secrets Manager for the Slack post tool).
+    """
+    from moto import mock_aws
+
+    with mock_aws():
+        import boto3
+
+        yield boto3
+
+
+@pytest.fixture
 def otel_in_memory_exporter() -> Iterator[InMemorySpanExporter]:
     """Install an in-memory OTel exporter and yield it for assertions."""
     from triage.shared.otel import install_in_memory_exporter

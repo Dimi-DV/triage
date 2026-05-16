@@ -726,6 +726,12 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/15/79/8085b7c1ecd48d0535c3c8444a1d8df2926e457dce8e55fabc332a382c9c/moto-5.2.1-py3-none-any.whl", hash = "sha256:19d2fbd6e613aa5b4e364c52cd5d3cea371643a0f4210689a703227bd2924c5c", size = 6671379, upload-time = "2026-05-10T19:11:53.543Z" },
 ]
 
+[package.optional-dependencies]
+s3 = [
+    { name = "py-partiql-parser" },
+    { name = "pyyaml" },
+]
+
 [[package]]
 name = "mypy"
 version = "2.1.0"
@@ -878,6 +884,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/8e/22/2de9408ac81acbb8a7d05d4cc064a152ccf33b3d480ebe0cd292153db239/pre_commit-4.6.0.tar.gz", hash = "sha256:718d2208cef53fdc38206e40524a6d4d9576d103eb16f0fec11c875e7716e9d9", size = 198525, upload-time = "2026-04-21T20:31:41.613Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/80/6e/4b28b62ecb6aae56769c34a8ff1d661473ec1e9519e2d5f8b2c150086b26/pre_commit-4.6.0-py2.py3-none-any.whl", hash = "sha256:e2cf246f7299edcabcf15f9b0571fdce06058527f0a06535068a86d38089f29b", size = 226472, upload-time = "2026-04-21T20:31:40.092Z" },
+]
+
+[[package]]
+name = "py-partiql-parser"
+version = "0.6.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/56/7a/a0f6bda783eb4df8e3dfd55973a1ac6d368a89178c300e1b5b91cd181e5e/py_partiql_parser-0.6.3.tar.gz", hash = "sha256:09cecf916ce6e3da2c050f0cb6106166de42c33d34a078ec2eb19377ea70389a", size = 17456, upload-time = "2025-10-18T13:56:13.441Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c9/33/a7cbfccc39056a5cf8126b7aab4c8bafbedd4f0ca68ae40ecb627a2d2cd3/py_partiql_parser-0.6.3-py2.py3-none-any.whl", hash = "sha256:deb0769c3346179d2f590dcbde556f708cdb929059fb654bad75f4cf6e07f582", size = 23752, upload-time = "2025-10-18T13:56:12.256Z" },
 ]
 
 [[package]]
@@ -1335,6 +1350,15 @@ wheels = [
 ]
 
 [[package]]
+name = "slack-sdk"
+version = "3.41.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/22/35/fc009118a13187dd9731657c60138e5a7c2dea88681a7f04dc406af5da7d/slack_sdk-3.41.0.tar.gz", hash = "sha256:eb61eb12a65bebeca9cb5d36b3f799e836ed2be21b456d15df2627cfe34076ca", size = 250568, upload-time = "2026-03-12T16:10:11.381Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a1/df/2e4be347ff98281b505cc0ccf141408cdd25eb5ca9f3830deb361b2472d3/slack_sdk-3.41.0-py2.py3-none-any.whl", hash = "sha256:bb18dcdfff1413ec448e759cf807ec3324090993d8ab9111c74081623b692a89", size = 313885, upload-time = "2026-03-12T16:10:09.811Z" },
+]
+
+[[package]]
 name = "sse-starlette"
 version = "3.4.4"
 source = { registry = "https://pypi.org/simple" }
@@ -1371,6 +1395,7 @@ dependencies = [
     { name = "opentelemetry-sdk" },
     { name = "pydantic" },
     { name = "pyjwt", extra = ["crypto"] },
+    { name = "slack-sdk" },
     { name = "starlette" },
     { name = "uvicorn" },
 ]
@@ -1378,14 +1403,14 @@ dependencies = [
 [package.optional-dependencies]
 dev = [
     { name = "httpx" },
-    { name = "moto" },
+    { name = "moto", extra = ["s3"] },
     { name = "mypy" },
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "ruff" },
-    { name = "types-boto3", extra = ["cloudwatch"] },
+    { name = "types-boto3", extra = ["cloudwatch", "s3", "secretsmanager"] },
 ]
 
 [package.metadata]
@@ -1393,7 +1418,7 @@ requires-dist = [
     { name = "boto3", specifier = ">=1.35" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27" },
     { name = "mcp", specifier = ">=1.0" },
-    { name = "moto", extras = ["cloudwatch"], marker = "extra == 'dev'", specifier = ">=5.0" },
+    { name = "moto", extras = ["cloudwatch", "s3", "secretsmanager"], marker = "extra == 'dev'", specifier = ">=5.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
     { name = "opentelemetry-api", specifier = ">=1.27" },
     { name = "opentelemetry-sdk", specifier = ">=1.27" },
@@ -1404,8 +1429,9 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
+    { name = "slack-sdk", specifier = ">=3.27" },
     { name = "starlette", specifier = ">=0.40" },
-    { name = "types-boto3", extras = ["cloudwatch"], marker = "extra == 'dev'", specifier = ">=1.35" },
+    { name = "types-boto3", extras = ["cloudwatch", "s3", "secretsmanager"], marker = "extra == 'dev'", specifier = ">=1.35" },
     { name = "uvicorn", specifier = ">=0.30" },
 ]
 provides-extras = ["dev"]
@@ -1436,6 +1462,12 @@ wheels = [
 cloudwatch = [
     { name = "types-boto3-cloudwatch" },
 ]
+s3 = [
+    { name = "types-boto3-s3" },
+]
+secretsmanager = [
+    { name = "types-boto3-secretsmanager" },
+]
 
 [[package]]
 name = "types-boto3-cloudwatch"
@@ -1444,6 +1476,24 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/d8/c9/0b2031f14f752e8ce421a6f77928240b2f9bad1ff2201a6ecd9d4fc7dc79/types_boto3_cloudwatch-1.43.2.tar.gz", hash = "sha256:f114275cbb6a8388e590d5b5ca1b4e56d367846baf12e4e9e6ffe969b6f8a620", size = 37841, upload-time = "2026-05-01T20:30:54.979Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/4c/3e/c2d6216f182d396d59ec697ed7858317530e57492e5901a79caea06d021c/types_boto3_cloudwatch-1.43.2-py3-none-any.whl", hash = "sha256:9173199e33687a815f07b12b4ec29f18cf49c9c092ca02de1193da7b40c5e37a", size = 47111, upload-time = "2026-05-01T20:30:53.339Z" },
+]
+
+[[package]]
+name = "types-boto3-s3"
+version = "1.43.5"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/6f/5a/8afab3b0300b3a3bdfa32dc376e8e13cbd80055d90fc77f1c12a8d856583/types_boto3_s3-1.43.5.tar.gz", hash = "sha256:94b20c693ba28085ce5bb52821e632661e401da4e957111276dee79490f83f06", size = 76878, upload-time = "2026-05-06T20:48:02.599Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/21/79/596d028c1a9da22e3107bc2cf1d926f6b56f883bc56e9777b3f32ce146ce/types_boto3_s3-1.43.5-py3-none-any.whl", hash = "sha256:0317a76324115a7dc656e88b409f3bb8f5ce4457857867c2aed00ed1f77cac76", size = 84081, upload-time = "2026-05-06T20:47:59.944Z" },
+]
+
+[[package]]
+name = "types-boto3-secretsmanager"
+version = "1.43.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/8d/b3/4bf7c59c116bdcfa28a3b6c456beeb5919157044d5252da18b7cfba2f1da/types_boto3_secretsmanager-1.43.0.tar.gz", hash = "sha256:434a90cd08c4e5d25ca6139caa6a737454c62f95dfff924b00d951d4c6736706", size = 19964, upload-time = "2026-04-29T23:06:38.34Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6f/0e/88785341c771a486174dc44798b29230f81ead04b721159c9dd3fdf6a39b/types_boto3_secretsmanager-1.43.0-py3-none-any.whl", hash = "sha256:4e6863cf32ab239f16c568a8a1edd311e16bf57ffb7a58a39749c5dfac2b6e5f", size = 27290, upload-time = "2026-04-29T23:06:36.084Z" },
 ]
 
 [[package]]

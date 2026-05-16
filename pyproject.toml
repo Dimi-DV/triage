@@ -33,6 +33,8 @@ dependencies = [
     "starlette>=0.40",
     # JWT validation against AgentCore Identity's JWKS.
     "pyjwt[crypto]>=2.9",
+    # Slack delivery for the runbooks_api_post_to_slack write tool.
+    "slack-sdk>=3.27",
 ]
 
 [project.optional-dependencies]
@@ -43,8 +45,8 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.10",
     "pre-commit>=3.7",
-    "types-boto3[cloudwatch]>=1.35",
-    "moto[cloudwatch]>=5.0",
+    "types-boto3[cloudwatch,s3,secretsmanager]>=1.35",
+    "moto[cloudwatch,s3,secretsmanager]>=5.0",
     # Starlette TestClient needs httpx; pinned explicitly so it's not an
     # accidental transitive import in test code.
     "httpx>=0.27",
