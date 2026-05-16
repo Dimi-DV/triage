@@ -1,4 +1,4 @@
-.PHONY: help install lint format typecheck test test-cov check run-mcp-server eval eval-scenario plan apply destroy clean fis-list
+.PHONY: help install lint format typecheck test test-cov check run-mcp-server eval eval-scenario plan apply destroy clean fis-list build-mcp-image push-mcp-image build-agent-image push-agent-image redeploy-mcp provision-agentcore
 
 # Default target: show help
 .DEFAULT_GOAL := help
@@ -38,6 +38,53 @@ check: lint format typecheck test ## Run all quality gates (CI mirror)
 
 run-mcp-server: ## Run the MCP server locally (stdio transport)
 	uv run python -m triage.mcp_server
+
+# ============================================================
+# Container images (Day 34 afternoon)
+# ============================================================
+
+# Read repo URLs lazily so missing Terraform state doesn't break `make help`.
+AWS_REGION ?= us-east-1
+ECR_REGISTRY = $(shell terraform -chdir=terraform/stack output -raw mcp_server_repository_url 2>/dev/null | cut -d/ -f1)
+MCP_REPO_URL = $(shell terraform -chdir=terraform/stack output -raw mcp_server_repository_url 2>/dev/null)
+AGENT_REPO_URL = $(shell terraform -chdir=terraform/stack output -raw agent_repository_url 2>/dev/null)
+MCP_SERVICE_NAME = $(shell terraform -chdir=terraform/stack output -raw mcp_server_service_name 2>/dev/null)
+ECS_CLUSTER_NAME = $(shell terraform -chdir=terraform/stack output -raw ecs_cluster_name 2>/dev/null)
+
+ecr-login: ## Authenticate Docker to the project's ECR registry
+	@test -n "$(ECR_REGISTRY)" || (echo "ECR registry unknown — terraform apply first"; exit 1)
+	aws ecr get-login-password --region $(AWS_REGION) | docker login --username AWS --password-stdin $(ECR_REGISTRY)
+
+build-mcp-image: ## Build the MCP server container image
+	docker build -f src/triage/mcp_server/Dockerfile -t triage-mcp-server:latest .
+
+push-mcp-image: ecr-login build-mcp-image ## Build + push the MCP server image to ECR
+	docker tag triage-mcp-server:latest $(MCP_REPO_URL):latest
+	docker push $(MCP_REPO_URL):latest
+
+build-agent-image: ## Build the agent runtime container image
+	docker build -f src/triage/agent/Dockerfile -t triage-agent:latest .
+
+push-agent-image: ecr-login build-agent-image ## Build + push the agent image to ECR
+	docker tag triage-agent:latest $(AGENT_REPO_URL):latest
+	docker push $(AGENT_REPO_URL):latest
+
+redeploy-mcp: ## Force ECS to redeploy the MCP service after a new image push
+	aws ecs update-service \
+	  --cluster $(ECS_CLUSTER_NAME) \
+	  --service $(MCP_SERVICE_NAME) \
+	  --force-new-deployment \
+	  --no-cli-pager
+
+# ============================================================
+# AgentCore provisioning (Day 34 evening)
+# ============================================================
+
+provision-agentcore: ## Create / update AgentCore Runtime + Gateway + Identity + Cedar bindings
+	uv run python scripts/provision_agentcore.py
+
+provision-agentcore-dry: ## Show what provision_agentcore would do
+	uv run python scripts/provision_agentcore.py --dry-run
 
 # ============================================================
 # Evaluation
