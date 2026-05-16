@@ -28,6 +28,14 @@ log = logging.getLogger(__name__)
 
 _HEALTH_PATH = "/health"
 _ALLOWED_ALGORITHMS = ("RS256", "ES256")
+_PLACEHOLDER_PREFIX = "PLACEHOLDER"
+
+
+def issuer_is_configured(issuer: str | None) -> bool:
+    """True when the issuer env var is set and not a placeholder."""
+    if not issuer:
+        return False
+    return not issuer.startswith(_PLACEHOLDER_PREFIX)
 
 
 @dataclass(frozen=True)
@@ -75,6 +83,31 @@ class JWTValidator:
             options={"require": ["exp", "iat", "sub", "aud", "iss"]},
         )
         return claims
+
+
+class BootstrapGateMiddleware(BaseHTTPMiddleware):
+    """Fail-closed gate while AGENTCORE_IDENTITY_ISSUER is not yet configured.
+
+    Keeps `/health` open so the ALB target stays healthy during bootstrap,
+    but returns 503 with Retry-After on every other path. Once the
+    provisioning script writes the real issuer to SSM and force-redeploys
+    the task, the new container instead installs `JWTAuthMiddleware`.
+
+    This is the failsafe against the public-ALB-exposes-MCP attack window
+    between `terraform apply` and `make provision-agentcore`.
+    """
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        if request.url.path == _HEALTH_PATH:
+            return await call_next(request)
+        return JSONResponse(
+            {
+                "error": "service_bootstrapping",
+                "detail": "AGENTCORE_IDENTITY_ISSUER not yet configured",
+            },
+            status_code=503,
+            headers={"Retry-After": "30"},
+        )
 
 
 class JWTAuthMiddleware(BaseHTTPMiddleware):

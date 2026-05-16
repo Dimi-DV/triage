@@ -14,7 +14,13 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 from starlette.testclient import TestClient
 
-from triage.mcp_server.auth import JWTAuthMiddleware, JWTValidator, JWTValidatorConfig
+from triage.mcp_server.auth import (
+    BootstrapGateMiddleware,
+    JWTAuthMiddleware,
+    JWTValidator,
+    JWTValidatorConfig,
+    issuer_is_configured,
+)
 from triage.mcp_server.server import current_principal, get_current_principal
 
 ISSUER = "https://identity.example.com"
@@ -179,3 +185,53 @@ def test_get_current_principal_uses_contextvar_when_set() -> None:
         assert get_current_principal() == "agent:override"
     finally:
         current_principal.reset(token)
+
+
+# ---------------------------------------------------------------------------
+# Bootstrap-gate middleware: returns 503 on /mcp/* until the issuer is set.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_issuer_is_configured_rejects_placeholder() -> None:
+    assert issuer_is_configured("https://identity.example.com") is True
+    assert issuer_is_configured("PLACEHOLDER_FILL_VIA_PROVISIONING_SCRIPT") is False
+    assert issuer_is_configured("") is False
+    assert issuer_is_configured(None) is False
+
+
+def _build_bootstrap_app() -> Starlette:
+    async def whoami(_request: Request) -> JSONResponse:
+        return JSONResponse({"principal": "should-not-be-reached"})
+
+    async def health(_request: Request) -> JSONResponse:
+        return JSONResponse({"ok": True})
+
+    app = Starlette(routes=[Route("/whoami", whoami), Route("/health", health)])
+    app.add_middleware(BootstrapGateMiddleware)
+    return app
+
+
+@pytest.mark.unit
+def test_bootstrap_gate_returns_503_on_mcp_paths() -> None:
+    client = TestClient(_build_bootstrap_app())
+    response = client.get("/whoami")
+    assert response.status_code == 503
+    assert response.json()["error"] == "service_bootstrapping"
+    assert response.headers.get("retry-after") == "30"
+
+
+@pytest.mark.unit
+def test_bootstrap_gate_allows_health() -> None:
+    client = TestClient(_build_bootstrap_app())
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+
+
+@pytest.mark.unit
+def test_bootstrap_gate_503s_even_with_bearer_token() -> None:
+    """An attacker presenting a Bearer token during bootstrap must still 503."""
+    client = TestClient(_build_bootstrap_app())
+    response = client.post("/whoami", headers={"Authorization": "Bearer not-checked"})
+    assert response.status_code == 503

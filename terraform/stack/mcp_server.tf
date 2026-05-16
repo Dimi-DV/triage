@@ -32,6 +32,28 @@ resource "aws_ecr_repository" "mcp_server" {
 }
 
 # ---------------------------------------------------------------------------
+# AgentCore Identity issuer URL — placeholder at apply time; the
+# provisioning script overwrites with the real value and force-redeploys
+# the MCP service. The task definition pulls this via the `secrets` block
+# so the value is never inlined into a JSON env list.
+#
+# This is the fail-closed bootstrap: until the placeholder is replaced,
+# the MCP server installs BootstrapGateMiddleware and returns 503 on
+# /mcp/* (keeping /health open so the ALB target stays healthy).
+# ---------------------------------------------------------------------------
+
+resource "aws_ssm_parameter" "agentcore_issuer" {
+  name        = "/${var.environment}/${var.project_name}/agentcore-identity-issuer"
+  description = "AgentCore Identity OAuth issuer URL; written by scripts/provision_agentcore.py."
+  type        = "String"
+  value       = "PLACEHOLDER_FILL_VIA_PROVISIONING_SCRIPT"
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
+# ---------------------------------------------------------------------------
 # Slack bot token secret — value populated manually post-apply.
 # Lives here because the MCP service task role grants Get access; the agent
 # Runtime never reads it directly (the Slack write is an MCP tool call).
@@ -85,6 +107,21 @@ resource "aws_iam_role" "mcp_task_execution" {
 resource "aws_iam_role_policy_attachment" "mcp_task_execution_managed" {
   role       = aws_iam_role.mcp_task_execution.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
+# Allow ECS to resolve `secrets` references in the task definition.
+data "aws_iam_policy_document" "mcp_task_execution_ssm" {
+  statement {
+    sid       = "ResolveTaskSecrets"
+    actions   = ["ssm:GetParameters"]
+    resources = [aws_ssm_parameter.agentcore_issuer.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "mcp_task_execution_ssm" {
+  name   = "${local.name_prefix}-mcp-task-execution-ssm"
+  role   = aws_iam_role.mcp_task_execution.id
+  policy = data.aws_iam_policy_document.mcp_task_execution_ssm.json
 }
 
 resource "aws_iam_role" "mcp_task" {
@@ -152,11 +189,18 @@ resource "aws_ecs_task_definition" "mcp_server" {
         { name = "TRIAGE_AUDIT_BUCKET", value = aws_s3_bucket.audit.id },
         { name = "TRIAGE_SLACK_SECRET_ID", value = aws_secretsmanager_secret.slack_bot_token.name },
         { name = "TRIAGE_MCP_AUDIENCE", value = "triage-mcp" },
-        # Until scripts/provision_agentcore.py fills in AGENTCORE_IDENTITY_ISSUER,
-        # bootstrap with auth disabled. The provisioning script updates the
-        # task definition with the issuer URL and removes this flag.
-        { name = "TRIAGE_MCP_AUTH_DISABLED", value = "1" },
         { name = "AWS_REGION", value = var.aws_region },
+      ]
+
+      # AGENTCORE_IDENTITY_ISSUER comes from SSM so the provisioning script
+      # can swap the value without Terraform re-applying the task def.
+      # While the SSM value is the PLACEHOLDER, the container installs
+      # BootstrapGateMiddleware and 503s every /mcp/* request — fail-closed.
+      secrets = [
+        {
+          name      = "AGENTCORE_IDENTITY_ISSUER"
+          valueFrom = aws_ssm_parameter.agentcore_issuer.arn
+        }
       ]
 
       logConfiguration = {

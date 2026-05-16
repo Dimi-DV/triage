@@ -77,7 +77,12 @@ def _create_or_reuse(create_fn: Any, kwargs: dict[str, Any], resource: str) -> d
         raise
 
 
-def _create_oauth_provider(control: Any) -> str:
+def _create_oauth_provider(control: Any) -> tuple[str, str]:
+    """Return (credential_provider_arn, issuer_url).
+
+    The issuer URL is what the MCP server's JWT validator hits to fetch
+    JWKS and what it accepts in the `iss` claim.
+    """
     log.info("Creating OAuth 2.1 credential provider (resource = triage-mcp)")
     result = _create_or_reuse(
         control.create_oauth2_credential_provider,
@@ -93,7 +98,23 @@ def _create_oauth_provider(control: Any) -> str:
         },
         "OAuth provider",
     )
-    return str(result.get("credentialProviderArn", ""))
+    arn = str(result.get("credentialProviderArn", ""))
+    # The issuer URL shape depends on the AgentCore Identity SDK surface;
+    # the create response should carry it, but field naming varies across
+    # SDK versions. Fall back to deriving from the provider name if absent.
+    issuer = str(
+        result.get("issuerUrl")
+        or result.get("issuer")
+        or result.get("oauth2ProviderConfigOutput", {}).get("issuerUrl", "")
+    )
+    if not issuer:
+        # TODO(day-35): once the create response stabilizes, drop this fallback.
+        log.warning(
+            "OAuth create response missing issuer URL field; using a derived "
+            "placeholder. Update _create_oauth_provider once the API stabilizes."
+        )
+        issuer = f"https://identity.bedrock-agentcore.us-east-1.amazonaws.com/{NAME_PREFIX}-oauth"
+    return arn, issuer
 
 
 def _create_workload_identity(control: Any, role_arn: str) -> str:
@@ -219,6 +240,30 @@ def _write_runtime_arn(runtime_arn: str, param_name: str) -> None:
     )
 
 
+def _write_issuer_url(issuer_url: str, param_name: str) -> None:
+    log.info("Writing AgentCore Identity issuer URL to SSM %s", param_name)
+    _ssm_client().put_parameter(
+        Name=param_name,
+        Value=issuer_url,
+        Type="String",
+        Overwrite=True,
+    )
+
+
+def _force_redeploy_mcp_service(cluster_name: str, service_name: str) -> None:
+    """Force ECS to launch a new task that picks up the updated SSM secret.
+
+    Without this, the running task still has the old PLACEHOLDER value
+    injected at startup; the new value only takes effect on next launch.
+    """
+    log.info("Force-redeploying ECS service %s on cluster %s", service_name, cluster_name)
+    boto3.client("ecs", region_name="us-east-1").update_service(
+        cluster=cluster_name,
+        service=service_name,
+        forceNewDeployment=True,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -237,6 +282,9 @@ def main(argv: list[str] | None = None) -> int:
         "audit_bucket_name",
         "mcp_endpoint_url",
         "agentcore_runtime_arn_parameter",
+        "agentcore_issuer_parameter",
+        "ecs_cluster_name",
+        "mcp_server_service_name",
     }
     missing = required - outputs.keys()
     if missing:
@@ -248,7 +296,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     control = _control_client()
-    _create_oauth_provider(control)
+    _credential_provider_arn, issuer_url = _create_oauth_provider(control)
     _create_workload_identity(control, outputs["agent_runtime_role_arn"])
     policy_engine_id = _create_policy_engine(control)
     if policy_engine_id:
@@ -265,6 +313,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     if runtime_arn:
         _write_runtime_arn(runtime_arn, outputs["agentcore_runtime_arn_parameter"])
+
+    # Close the bootstrap auth gap: write the real issuer URL into SSM and
+    # force-redeploy the MCP service so the new container reads it at
+    # startup and switches from BootstrapGateMiddleware to JWTAuthMiddleware.
+    _write_issuer_url(issuer_url, outputs["agentcore_issuer_parameter"])
+    _force_redeploy_mcp_service(outputs["ecs_cluster_name"], outputs["mcp_server_service_name"])
+
     log.info("Provisioning complete.")
     return 0
 

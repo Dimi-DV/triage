@@ -150,3 +150,8 @@ output "demo_alarm_name" {
   description = "CloudWatch alarm used for the hello-world manual trigger"
   value       = aws_cloudwatch_metric_alarm.demo.alarm_name
 }
+
+output "agentcore_issuer_parameter" {
+  description = "SSM Parameter Store name where provision_agentcore.py writes the AgentCore Identity issuer URL. The MCP task pulls this via the `secrets` block."
+  value       = aws_ssm_parameter.agentcore_issuer.name
+}

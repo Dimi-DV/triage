@@ -43,13 +43,48 @@ def _run_streamable_http() -> None:
 
     app.router.routes.append(Route(_HEALTH_PATH, health, methods=["GET"]))
 
-    if os.environ.get("TRIAGE_MCP_AUTH_DISABLED") != "1":
-        from .auth import JWTAuthMiddleware, JWTValidator, JWTValidatorConfig
-
-        validator = JWTValidator(JWTValidatorConfig.from_env())
-        app.add_middleware(JWTAuthMiddleware, validator=validator)
-
+    _install_auth_middleware(app)
     uvicorn.run(app, host=mcp.settings.host, port=mcp.settings.port, log_level="info")
+
+
+def _install_auth_middleware(app: object) -> None:
+    """Pick the right middleware for the current env state.
+
+    - TRIAGE_MCP_AUTH_DISABLED=1            → no middleware (local-dev escape hatch).
+    - issuer unset or starts with PLACEHOLDER → BootstrapGateMiddleware (503 on /mcp/*).
+    - issuer configured                     → JWTAuthMiddleware (validate bearer tokens).
+    """
+    log = logging.getLogger(__name__)
+    from .auth import (
+        BootstrapGateMiddleware,
+        JWTAuthMiddleware,
+        JWTValidator,
+        JWTValidatorConfig,
+        issuer_is_configured,
+    )
+
+    if os.environ.get("TRIAGE_MCP_AUTH_DISABLED") == "1":
+        log.warning(
+            "TRIAGE_MCP_AUTH_DISABLED=1 — running without auth. "
+            "Local-dev only; do not set in production."
+        )
+        return
+
+    issuer = os.environ.get("AGENTCORE_IDENTITY_ISSUER")
+    if not issuer_is_configured(issuer):
+        log.warning(
+            "AGENTCORE_IDENTITY_ISSUER not configured (current=%r); installing "
+            "BootstrapGateMiddleware. /mcp/* will return 503 until "
+            "scripts/provision_agentcore.py updates the SSM parameter and "
+            "the task is force-redeployed.",
+            issuer,
+        )
+        app.add_middleware(BootstrapGateMiddleware)  # type: ignore[attr-defined]
+        return
+
+    validator = JWTValidator(JWTValidatorConfig.from_env())
+    app.add_middleware(JWTAuthMiddleware, validator=validator)  # type: ignore[attr-defined]
+    log.info("JWT auth enabled; issuer=%s", issuer)
 
 
 _HEALTH_PATH = "/health"
