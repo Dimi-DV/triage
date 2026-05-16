@@ -45,9 +45,9 @@ async def test_list_and_invoke_metrics_tool(
     async with create_connected_server_and_client_session(mcp) as session:
         tools = await session.list_tools()
         by_name = {t.name: t for t in tools.tools}
-        assert (
-            "metrics_api_get_metric_statistics" in by_name
-        ), f"expected metrics tool registered, got {list(by_name)}"
+        assert "metrics_api_get_metric_statistics" in by_name, (
+            f"expected metrics tool registered, got {list(by_name)}"
+        )
 
         schema = by_name["metrics_api_get_metric_statistics"].inputSchema
         assert schema is not None
