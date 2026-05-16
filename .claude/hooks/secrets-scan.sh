@@ -27,8 +27,8 @@ if [[ -z "$CONTENT" ]]; then
 fi
 
 # Pattern 1: AWS Access Key ID (high-confidence — AKIA prefix is reserved)
-if echo "$CONTENT" | grep -qE 'AKIA[0-9A-Z]{16}'; then
-  echo "BLOCKED: AWS Access Key ID pattern (AKIA...) detected in $FILE_PATH." >&2
+if echo "$CONTENT" | grep -qE '(AKIA|ASIA)[0-9A-Z]{16}'; then
+  echo "BLOCKED: AWS Access Key ID pattern detected in $FILE_PATH." >&2
   echo "Use environment variables, IAM roles, or AWS profiles instead." >&2
   exit 2
 fi

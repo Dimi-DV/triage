@@ -1,6 +1,6 @@
 ---
 name: add-outage-scenario
-description: Scaffold a new outage scenario for the eval corpus — either an AWS FIS experiment template (for chaos faults like AZ slowdown or EBS pause-IO) or a Terraform overlay (for deliberate misconfigurations), plus the matching AgentCore Evaluations ground-truth YAML.
+description: "Scaffold a new outage scenario: either an AWS FIS experiment template (chaos faults like AZ slowdown, EBS pause-IO) or a Terraform overlay (deliberate misconfigurations like target-group port mismatch). Always pairs with an AgentCore Evaluations ground-truth YAML. Use when adding to the 8–10 scenario corpus."
 ---
 
 # /add-outage-scenario
