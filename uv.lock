@@ -1370,10 +1370,14 @@ dependencies = [
     { name = "opentelemetry-api" },
     { name = "opentelemetry-sdk" },
     { name = "pydantic" },
+    { name = "pyjwt", extra = ["crypto"] },
+    { name = "starlette" },
+    { name = "uvicorn" },
 ]
 
 [package.optional-dependencies]
 dev = [
+    { name = "httpx" },
     { name = "moto" },
     { name = "mypy" },
     { name = "pre-commit" },
@@ -1387,6 +1391,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "boto3", specifier = ">=1.35" },
+    { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27" },
     { name = "mcp", specifier = ">=1.0" },
     { name = "moto", extras = ["cloudwatch"], marker = "extra == 'dev'", specifier = ">=5.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
@@ -1394,11 +1399,14 @@ requires-dist = [
     { name = "opentelemetry-sdk", specifier = ">=1.27" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.7" },
     { name = "pydantic", specifier = ">=2.7" },
+    { name = "pyjwt", extras = ["crypto"], specifier = ">=2.9" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
+    { name = "starlette", specifier = ">=0.40" },
     { name = "types-boto3", extras = ["cloudwatch"], marker = "extra == 'dev'", specifier = ">=1.35" },
+    { name = "uvicorn", specifier = ">=0.30" },
 ]
 provides-extras = ["dev"]
 
