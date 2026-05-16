@@ -36,6 +36,7 @@ import sys
 from typing import Any
 
 import boto3
+from botocore.exceptions import ClientError
 
 log = logging.getLogger("provision_agentcore")
 
@@ -68,7 +69,7 @@ def _create_or_reuse(create_fn: Any, kwargs: dict[str, Any], resource: str) -> d
     """Call a control-plane create_* method, tolerating ConflictException."""
     try:
         return dict(create_fn(**kwargs))
-    except _control_client().exceptions.ClientError as exc:  # type: ignore[attr-defined]
+    except ClientError as exc:
         code = exc.response.get("Error", {}).get("Code", "")
         if code in {"ConflictException", "ResourceAlreadyExistsException"}:
             log.info("%s already exists; reusing", resource)

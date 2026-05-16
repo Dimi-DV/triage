@@ -58,11 +58,16 @@ SYSTEM_PROMPT = _load_system_prompt()
 # ---------------------------------------------------------------------------
 # Minimal MCP-over-HTTP client.
 #
-# AgentCore Gateway speaks MCP Streamable HTTP. The official `mcp` Python
-# client also supports it, but its session lifecycle (init handshake +
-# bidirectional event stream) is heavier than we need for a single-turn
-# tools/list + tools/call. We POST the JSON-RPC envelope directly.
+# AgentCore Gateway speaks MCP Streamable HTTP. We POST JSON-RPC envelopes
+# directly rather than using the full `mcp.client.streamable_http` session
+# manager, but we still honor the spec's `initialize → initialized →
+# tools/*` handshake the SDK enforces.
 # ---------------------------------------------------------------------------
+
+
+_MCP_CLIENT_NAME = "triage-agent"
+_MCP_CLIENT_VERSION = "0.1.0"
+_initialized = False
 
 
 def _gateway_headers() -> dict[str, str]:
@@ -73,14 +78,55 @@ def _gateway_headers() -> dict[str, str]:
     return headers
 
 
-def _mcp_request(method: str, params: dict[str, Any]) -> dict[str, Any]:
+def _post_jsonrpc(envelope: dict[str, Any]) -> dict[str, Any]:
     url = os.environ[_GATEWAY_URL_ENV]
-    envelope = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
     response = httpx.post(url, json=envelope, headers=_gateway_headers(), timeout=30.0)
     response.raise_for_status()
-    body = response.json()
+    body: dict[str, Any] = response.json()
     if "error" in body:
         raise RuntimeError(f"MCP error from gateway: {body['error']}")
+    return body
+
+
+def _ensure_initialized() -> None:
+    """Send `initialize` + `notifications/initialized` once per process.
+
+    Required by the MCP spec before any tools/* call. FastMCP enforces this
+    in HTTP mode regardless of stateless_http=True.
+    """
+    global _initialized
+    if _initialized:
+        return
+    init_response = _post_jsonrpc(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
+                "clientInfo": {"name": _MCP_CLIENT_NAME, "version": _MCP_CLIENT_VERSION},
+            },
+        }
+    )
+    log.info(
+        "MCP initialize OK; server=%s",
+        init_response.get("result", {}).get("serverInfo", {}),
+    )
+    # Notifications carry no id and expect no response body; the gateway may
+    # 202 it. We still go through httpx so the request hits the wire.
+    httpx.post(
+        os.environ[_GATEWAY_URL_ENV],
+        json={"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}},
+        headers=_gateway_headers(),
+        timeout=10.0,
+    )
+    _initialized = True
+
+
+def _mcp_request(method: str, params: dict[str, Any]) -> dict[str, Any]:
+    _ensure_initialized()
+    body = _post_jsonrpc({"jsonrpc": "2.0", "id": 2, "method": method, "params": params})
     return cast(dict[str, Any], body.get("result", {}))
 
 
@@ -182,7 +228,12 @@ def _run_loop(alarm_payload: dict[str, Any]) -> dict[str, Any]:
                     )
         messages.append({"role": "user", "content": tool_results})
     else:
-        log.warning("Agent loop exhausted _MAX_TURNS=%d without stopping", _MAX_TURNS)
+        # Loop exhaustion is a real failure: Slack post never happened.
+        # Raise so the /invocations handler returns 500 and SNS/DLQ surface it.
+        raise RuntimeError(
+            f"Agent loop exhausted _MAX_TURNS={_MAX_TURNS} without completing; "
+            "Slack post was not made."
+        )
 
     return {"final_text": final_text, "turns": len(messages)}
 
