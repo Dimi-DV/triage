@@ -55,6 +55,7 @@ An AIOps incident response agent on AWS Bedrock AgentCore. Mirrors the AWS DevOp
 
 ## Soft rules (preferences)
 
+- The per day guideline as to what is to be built when is a soft guide not a hard rule. Feel free to touch or create infrastructure from any "day" as you see fit or think will work best
 - Pin every dependency version (`requirements.txt`, Terraform provider versions)
 - Pin the MCP protocol version in the server config (statelessness migration coming in 2026 spec)
 - OpenTelemetry spans on every MCP tool — no retrofitting later
