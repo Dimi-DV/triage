@@ -23,12 +23,12 @@ classifiers = [
 ]
 dependencies = [
     "boto3>=1.35",
-    # MCP server dependencies — added as you build
-    # "mcp>=...",
+    "mcp>=1.0",
+    "pydantic>=2.7",
+    "opentelemetry-api>=1.27",
+    "opentelemetry-sdk>=1.27",
+    # AgentCore Runtime wiring lands on Day 34 afternoon
     # "bedrock-agentcore>=...",
-    # "opentelemetry-api>=1.27",
-    # "opentelemetry-sdk>=1.27",
-    # "pydantic>=2.7",
 ]
 
 [project.optional-dependencies]
@@ -39,7 +39,8 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.10",
     "pre-commit>=3.7",
-    "types-boto3>=1.35",
+    "types-boto3[cloudwatch]>=1.35",
+    "moto[cloudwatch]>=5.0",
 ]
 
 [project.urls]
@@ -94,7 +95,7 @@ python_version = "3.12"
 strict = true
 warn_unused_ignores = true
 warn_redundant_casts = true
-warn_unused_configs = true
+warn_unused_configs = false  # overrides for moto.*/tests.* are intentionally absent on src-only runs
 no_implicit_optional = true
 disallow_untyped_defs = true
 check_untyped_defs = true
@@ -104,6 +105,14 @@ files = ["src"]
 [[tool.mypy.overrides]]
 module = "tests.*"
 disallow_untyped_defs = false  # tests don't require type annotations
+
+[[tool.mypy.overrides]]
+module = "moto.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "opentelemetry.exporter.otlp.*"
+ignore_missing_imports = true
 
 # ----- pytest -----
 [tool.pytest.ini_options]

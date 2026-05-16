@@ -47,8 +47,8 @@ Decision doc with full architectural reasoning: [`docs/architecture-references/t
 
 | Component | Status |
 |---|---|
-| Production AWS stack (Terraform) | <!-- FILL: in progress / complete --> |
-| Custom MCP server (four namespaces) | <!-- FILL --> |
+| Production AWS stack (Terraform) | Day 32 VPC/RDS/ACM + Day 33 ALB/WAF/Route 53/ECS — shipped |
+| Custom MCP server (four namespaces) | Scaffolded (`metrics-api` has its first read tool); `ecs/logs/runbooks` namespaces still empty |
 | AgentCore Runtime + system prompt | <!-- FILL --> |
 | Cedar policy + Slack approval | <!-- FILL --> |
 | Outage corpus (4 FIS + 4–6 Terraform overlays) | <!-- FILL --> |
@@ -134,6 +134,16 @@ See [`docs/architecture.md`](docs/architecture.md) for a guided tour. Quick map:
 - **Decision doc (full reasoning):** [`docs/architecture-references/triage-decision-doc-v2.md`](docs/architecture-references/triage-decision-doc-v2.md)
 - **Architecture Decision Records:** [`docs/adr/`](docs/adr/)
 - **Reference notes** (AgentCore, MAST, FIS, MCP, etc.): [`docs/architecture-references/`](docs/architecture-references/)
+
+## Known limitations
+
+These are deliberate, time-boxed deviations from the published reference architecture. They're documented here so reviewers (and future me) can tell what's missing vs. what's mis-wired.
+
+- **MCP protocol version is pinned at `2025-11-25`** — the value read from the installed `mcp` SDK at commit time. The 2026 statelessness migration on the MCP spec roadmap is not yet absorbed; revisit when the SDK ships a new `LATEST_PROTOCOL_VERSION`.
+- **Stdio transport only**, swap to Streamable HTTP for AgentCore Gateway is on the Day 36 list. The `mcp.run(transport=...)` call is factored so that swap is one line.
+- **All logging and OTel exports must go to stderr.** The stdio MCP transport uses stdout for JSON-RPC framing; any stray stdout write (`print`, default `logging.basicConfig`, `ConsoleSpanExporter` with its default `out=sys.stdout`) corrupts the protocol. `triage.shared.otel.init_tracing` forces logging to stderr and the console exporter to stderr; preserve that invariant.
+- **Read-only IAM by default, but not yet enforced at runtime.** The boto3 client uses whatever credentials the process has — when AgentCore Runtime is wired (Day 34 afternoon), the runtime role will be read-only. No write tools exist yet; Cedar gates writes when they land (Day 36).
+- **CloudWatch agent installed via user data** (per the AWS DevOps Agent reference) is reframed for our Fargate workload as **Container Insights** at the cluster level (Day 33) + `awslogs` log driver in the task definition (Day 34 afternoon). Functionally equivalent; the v3 spec note acknowledges this.
 
 ## Acknowledgments
 

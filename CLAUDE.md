@@ -30,7 +30,7 @@ An AIOps incident response agent on AWS Bedrock AgentCore. Mirrors the AWS DevOp
 |---|---|
 | Deploy production stack | `cd terraform/stack && terraform plan && terraform apply` |
 | Deploy outage overlay | `cd terraform/overlays/<scenario> && terraform apply` |
-| Run MCP server locally | `cd mcp-server && python -m server` |
+| Run MCP server locally | `make run-mcp-server` (= `uv run python -m triage.mcp_server`) |
 | Run eval suite | `cd evals && python run_evals.py` |
 | Start FIS experiment | `aws fis start-experiment --experiment-template-id <ID>` |
 | Tail audit log | `aws s3 cp s3://<FILL>/$(date +%Y-%m-%d) - \| tail -50` |

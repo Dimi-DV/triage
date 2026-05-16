@@ -27,14 +27,14 @@ Create or edit:
 
 1. **`src/triage/mcp_server/<namespace_underscored>/<tool_name>.py`** — the implementation:
    - Pydantic input model
-   - Async function decorated with the MCP SDK tool decorator, registered under the full tool ID
-   - OpenTelemetry span around the body (span name = full tool ID; attributes for non-secret parameters)
-   - boto3 client call (read-only IAM by default)
+   - **Sync** function decorated with `@mcp.tool(...)` from the shared FastMCP instance in `src/triage/mcp_server/server.py`, registered under the full tool ID. FastMCP runs sync tools in a threadpool; `async def` is only correct with a deliberate `asyncio.to_thread` around the blocking boto3 call.
+   - OpenTelemetry span via `tool_span(<full_tool_id>, ...)` from `triage.shared.otel` (attributes for non-secret parameters only)
+   - boto3 client from `triage.shared.aws` (read-only IAM by default)
    - Structured return value matching the namespace's shared shape
-   - Consistent error handling — botocore exceptions wrapped in the namespace's error type
+   - Consistent error handling — botocore exceptions wrapped via `wrap_boto_error(e, <NamespaceError>)` from `triage.shared.errors`
    - For write tools: audit-log emission to the S3 Object Lock bucket **before** the AWS API call
 
-2. **`tests/mcp_server/<namespace_underscored>/test_<tool_name>.py`** — pytest:
+2. **`tests/unit/mcp_server/<namespace_underscored>/test_<tool_name>.py`** — pytest:
    - `@pytest.mark.unit` happy path with `moto` or a mocked boto3 client
    - Error path (boto3 ClientError) — assert the wrapped error type
    - For write tools: assert the audit entry is emitted **before** the AWS call (order matters — if the AWS call happens first and audit second, a partial failure escapes the journal)
@@ -57,7 +57,7 @@ Create or edit:
 - Tool ID (Python + MCP registration): `<namespace_underscored>_<verb>_<noun>` — e.g. `metrics_api_query_cloudwatch`
 - File: `src/triage/mcp_server/<namespace_underscored>/<tool_name>.py`
 - Cedar policy: `cedar-policies/<namespace>-<verb>-<noun>.cedar` (kebab-case in filename)
-- Test: `tests/mcp_server/<namespace_underscored>/test_<tool_name>.py`
+- Test: `tests/unit/mcp_server/<namespace_underscored>/test_<tool_name>.py`
 
 ## References
 
