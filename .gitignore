@@ -64,3 +64,4 @@ docs/journal/*-draft.md
 *.log
 logs/
 audit-local/
+terraform/stack/.build/
