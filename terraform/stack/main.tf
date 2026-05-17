@@ -253,6 +253,19 @@ resource "aws_vpc_security_group_egress_rule" "app_all" {
   description       = "App tier outbound (NAT to AWS APIs + Slack + Bedrock)"
 }
 
+# Egress for ALB. Same Terraform provider quirk — no implicit allow-all
+# egress. Without this, the ALB can accept 80/443 ingress but cannot
+# forward to the task on 8080: target health stays Target.Timeout
+# forever. Scope to the app SG (the only thing the ALB ever talks to).
+resource "aws_vpc_security_group_egress_rule" "alb_to_app" {
+  security_group_id            = aws_security_group.alb.id
+  referenced_security_group_id = aws_security_group.app.id
+  ip_protocol                  = "tcp"
+  from_port                    = var.app_port
+  to_port                      = var.app_port
+  description                  = "ALB outbound to app tier (target group health check + traffic)"
+}
+
 # ---------------------------------------------------------------------------
 # RDS — Postgres, Multi-AZ
 # ---------------------------------------------------------------------------
