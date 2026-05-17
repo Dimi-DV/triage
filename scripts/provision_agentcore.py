@@ -194,7 +194,14 @@ def _create_runtime(
             "networkConfiguration": {"networkMode": "PUBLIC"},
             "protocolConfiguration": {"serverProtocol": "HTTP"},
             "environmentVariables": {
-                "BEDROCK_MODEL_ID": "anthropic.claude-sonnet-4-6-v1:0",
+                # Bedrock Converse for Claude requires a cross-region inference
+                # profile ID, not the bare foundation-model ID. The previous
+                # value (`anthropic.claude-sonnet-4-6-v1:0`) returned
+                # ValidationException("invalid model identifier"). Once
+                # Anthropic model access is granted on this account, this
+                # profile will resolve; until then Converse returns
+                # AccessDeniedException with an aws-marketplace:Subscribe hint.
+                "BEDROCK_MODEL_ID": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
                 "TRIAGE_GATEWAY_URL": gateway_url,
                 "TRIAGE_AUDIT_BUCKET": audit_bucket,
                 "TRIAGE_PRINCIPAL": "agent:prod-triage-agent",
