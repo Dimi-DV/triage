@@ -198,12 +198,10 @@ resource "aws_ecs_task_definition" "mcp_server" {
         { name = "TRIAGE_MCP_AUTH_DISABLED", value = "1" },
       ]
 
-      secrets = [
-        {
-          name      = "AGENTCORE_IDENTITY_ISSUER"
-          valueFrom = aws_ssm_parameter.agentcore_issuer.arn
-        }
-      ]
+      # No SSM-backed secrets needed: the original AGENTCORE_IDENTITY_ISSUER
+      # path is moot with TRIAGE_MCP_AUTH_DISABLED. Pulling from SSM at task
+      # launch also requires either a SSM VPC endpoint or NAT egress, and we
+      # were hitting "context deadline exceeded" on the SSM resolve.
 
       logConfiguration = {
         logDriver = "awslogs"
