@@ -149,6 +149,14 @@ def _create_gateway(control: Any, role_arn: str) -> tuple[str, str]:
 
 
 def _create_mcp_target(control: Any, gateway_id: str, mcp_url: str) -> None:
+    """Register the MCP server as a gateway target.
+
+    The targetConfiguration.mcp shape is a tagged union; we use the
+    `mcpServer` variant so the gateway proxies tools/* calls through to
+    the upstream Streamable HTTP MCP server at `mcp_url`. DYNAMIC listing
+    mode forwards tools/list at request time instead of caching at
+    create-time, so we don't need to pre-declare a tool schema.
+    """
     log.info("Creating MCP gateway target → %s", mcp_url)
     _create_or_reuse(
         control.create_gateway_target,
@@ -157,9 +165,11 @@ def _create_mcp_target(control: Any, gateway_id: str, mcp_url: str) -> None:
             "name": GATEWAY_TARGET_NAME,
             "targetConfiguration": {
                 "mcp": {
-                    "endpoint": mcp_url,
-                    "transport": "STREAMABLE_HTTP",
-                }
+                    "mcpServer": {
+                        "endpoint": mcp_url,
+                        "listingMode": "DYNAMIC",
+                    },
+                },
             },
         },
         "Gateway target",

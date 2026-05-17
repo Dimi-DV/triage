@@ -16,12 +16,22 @@ from contextvars import ContextVar
 from typing import Final
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 MCP_PROTOCOL_VERSION: Final[str] = "2025-11-25"
 SERVER_NAME: Final[str] = "triage"
 SERVER_VERSION: Final[str] = "0.1.0"
 
-mcp: Final[FastMCP] = FastMCP(SERVER_NAME)
+# FastMCP auto-installs DNS-rebinding protection (allowed_hosts limited to
+# 127.0.0.1/localhost/::1) whenever the configured host is loopback. We bind
+# to 0.0.0.0 in production and front the MCP server with ALB+WAF, which is
+# where host validation belongs — so we disable the in-process check
+# explicitly. Without this, any request from the AgentCore Gateway or any
+# non-loopback caller comes back as 421 "Invalid Host header".
+mcp: Final[FastMCP] = FastMCP(
+    SERVER_NAME,
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+)
 
 current_principal: ContextVar[str | None] = ContextVar("triage_current_principal", default=None)
 
