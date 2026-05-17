@@ -342,19 +342,21 @@ resource "aws_acm_certificate" "main" {
   }
 }
 
+locals {
+  # Static keys for the cert validation records — domain_validation_options is
+  # known-after-apply, so deriving for_each keys from it breaks terraform import
+  # and -target. We know the cert's subjects (apex + www) at plan time; key the
+  # for_each on those and look up the apply-time validation values by domain.
+  acm_validation_domains = toset([var.domain_name, "www.${var.domain_name}"])
+}
+
 resource "aws_route53_record" "acm_validation" {
-  for_each = {
-    for dvo in aws_acm_certificate.main.domain_validation_options : dvo.domain_name => {
-      name   = dvo.resource_record_name
-      record = dvo.resource_record_value
-      type   = dvo.resource_record_type
-    }
-  }
+  for_each = local.acm_validation_domains
 
   zone_id         = aws_route53_zone.main.zone_id
-  name            = each.value.name
-  type            = each.value.type
-  records         = [each.value.record]
+  name            = one([for dvo in aws_acm_certificate.main.domain_validation_options : dvo.resource_record_name if dvo.domain_name == each.value])
+  type            = one([for dvo in aws_acm_certificate.main.domain_validation_options : dvo.resource_record_type if dvo.domain_name == each.value])
+  records         = [one([for dvo in aws_acm_certificate.main.domain_validation_options : dvo.resource_record_value if dvo.domain_name == each.value])]
   ttl             = 60
   allow_overwrite = true
 }
