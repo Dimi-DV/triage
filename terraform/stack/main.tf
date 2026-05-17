@@ -504,7 +504,7 @@ resource "aws_lb_listener" "http_redirect" {
 
 resource "aws_wafv2_web_acl" "main" {
   name        = "${local.name_prefix}-waf"
-  description = "Edge WAF — AWS Managed Common Rule Set"
+  description = "Edge WAF - AWS Managed Common Rule Set"
   scope       = "REGIONAL"
 
   default_action {
