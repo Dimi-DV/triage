@@ -14,8 +14,8 @@ An AIOps incident response agent on AWS Bedrock AgentCore. Mirrors the AWS DevOp
 - **MCP server:** Custom Python; four namespaces — `ecs-api`, `logs-api`, `metrics-api`, `runbooks-api`
 - **IaC:** Terraform; state in S3 (`dimitrije-tf-state-2026`), locking via DynamoDB (`terraform-locks`)
 - **Workload:** ECS Fargate in Multi-AZ VPC `prod-vpc` (10.0.0.0/16); RDS Multi-AZ; ALB; WAF
-- **Auth:** OAuth 2.1 + Resource Indicators via AgentCore Identity
-- **Policy:** Cedar at AgentCore Gateway (deterministic write-action gate)
+- **Auth:** AWS IAM (SigV4) at AgentCore Gateway. The "OAuth 2.1 via AgentCore Identity" line in the decision doc doesn't match the live API — there's no service-side OAuth issuer in `bedrock-agentcore-control`. Callers (alarm Lambda, Runtime) sign with their IAM roles.
+- **Policy:** Cedar policy text in `cedar-policies/`. Enforcement at the Gateway is **deferred** — `CreateGateway` has no `policyEngineConfiguration` param; wiring requires a Lambda interceptor (`interceptorConfigurations`).
 - **Audit:** S3 Object Lock bucket, append-only
 - **Eval:** AgentCore Evaluations — 5+ built-in evaluators + 1–2 custom LLM-as-judge
 - **Outage corpus:** 4 AWS FIS scenarios + 4–6 Terraform overlay misconfigurations
