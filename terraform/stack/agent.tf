@@ -229,6 +229,29 @@ data "aws_iam_policy_document" "agent_runtime" {
     actions   = ["xray:PutTraceSegments", "xray:PutTelemetryRecords"]
     resources = ["*"]
   }
+
+  # AgentCore Runtime uses this role to pull the agent container image
+  # from ECR when starting a session container.
+  statement {
+    sid       = "EcrAuth"
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"]
+  }
+
+  # AgentCore's pre-validation tests these actions without a resource ARN
+  # context, so resource-scoping to the specific repo fails its check even
+  # though the actions are correctly granted for the actual pull URI.
+  # Using "*" — acceptable for learner-scope; can tighten later if AgentCore
+  # exposes a context-aware validation path.
+  statement {
+    sid = "EcrPullAgentImage"
+    actions = [
+      "ecr:BatchCheckLayerAvailability",
+      "ecr:BatchGetImage",
+      "ecr:GetDownloadUrlForLayer",
+    ]
+    resources = ["*"]
+  }
 }
 
 resource "aws_iam_role_policy" "agent_runtime" {

@@ -190,12 +190,14 @@ resource "aws_ecs_task_definition" "mcp_server" {
         { name = "TRIAGE_SLACK_SECRET_ID", value = aws_secretsmanager_secret.slack_bot_token.name },
         { name = "TRIAGE_MCP_AUDIENCE", value = "triage-mcp" },
         { name = "AWS_REGION", value = var.aws_region },
+        # AgentCore Gateway authenticates callers via SigV4 (AWS_IAM authorizer).
+        # The MCP server trusts requests forwarded from the Gateway; no second
+        # auth layer here. The Cedar enforcement that the original BootstrapGate
+        # / JWTAuth pair was scaffolded around still needs a Gateway interceptor
+        # (deferred). Leaving MCP auth disabled until that path is implemented.
+        { name = "TRIAGE_MCP_AUTH_DISABLED", value = "1" },
       ]
 
-      # AGENTCORE_IDENTITY_ISSUER comes from SSM so the provisioning script
-      # can swap the value without Terraform re-applying the task def.
-      # While the SSM value is the PLACEHOLDER, the container installs
-      # BootstrapGateMiddleware and 503s every /mcp/* request — fail-closed.
       secrets = [
         {
           name      = "AGENTCORE_IDENTITY_ISSUER"
