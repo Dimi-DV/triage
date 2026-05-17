@@ -218,6 +218,11 @@ data "aws_iam_policy_document" "agent_runtime" {
   statement {
     sid = "AgentCoreGatewayAccess"
     actions = [
+      # InvokeGateway is what the AWS_IAM authorizer checks when the agent
+      # SigV4-signs a request to the gateway's data-plane URL.
+      # InvokeGatewayTarget / ListGatewayTargets cover the control-plane
+      # introspection paths.
+      "bedrock-agentcore:InvokeGateway",
       "bedrock-agentcore:InvokeGatewayTarget",
       "bedrock-agentcore:ListGatewayTargets",
     ]
@@ -228,6 +233,20 @@ data "aws_iam_policy_document" "agent_runtime" {
     sid       = "XRayTraceExport"
     actions   = ["xray:PutTraceSegments", "xray:PutTelemetryRecords"]
     resources = ["*"]
+  }
+
+  # AgentCore Runtime emits container stdout/stderr to CloudWatch Logs under
+  # /aws/bedrock-agentcore/runtimes/<runtime-id>/...; without these the only
+  # signal on container failure is a generic 500 from invoke-agent-runtime.
+  statement {
+    sid = "CloudWatchLogsForRuntime"
+    actions = [
+      "logs:CreateLogGroup",
+      "logs:CreateLogStream",
+      "logs:PutLogEvents",
+      "logs:DescribeLogStreams",
+    ]
+    resources = ["arn:aws:logs:*:*:log-group:/aws/bedrock-agentcore/*"]
   }
 
   # AgentCore Runtime uses this role to pull the agent container image

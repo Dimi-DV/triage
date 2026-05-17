@@ -62,7 +62,7 @@ push-mcp-image: ecr-login build-mcp-image ## Build + push the MCP server image t
 	docker tag triage-mcp-server:latest $(MCP_REPO_URL):latest
 	docker push $(MCP_REPO_URL):latest
 
-build-agent-image: ## Build the agent runtime container image
+build-agent-image: ## Build the agent runtime container image (arm64 — AgentCore Runtime requires arm64)
 	docker build -f src/triage/agent/Dockerfile -t triage-agent:latest .
 
 push-agent-image: ecr-login build-agent-image ## Build + push the agent image to ECR

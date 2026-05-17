@@ -3,7 +3,7 @@
 Runtime addresses each session over HTTP. The container listens on
 `0.0.0.0:8080` and exposes:
 
-  - GET  /health         — liveness probe (used by ECS / Runtime healthchecks).
+  - GET  /ping           — AgentCore Runtime readiness probe; 200 = healthy.
   - POST /invocations    — Runtime delivers the input payload here; we drive
                            a Bedrock Claude `converse` loop with tool use
                            proxied through AgentCore Gateway (MCP over
@@ -20,14 +20,17 @@ import json
 import logging
 import os
 import pathlib
+import time
 from typing import Any, cast
 
 import boto3
 import httpx
 import uvicorn
+from botocore.auth import SigV4Auth
+from botocore.awsrequest import AWSRequest
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import JSONResponse, PlainTextResponse
+from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from triage.shared.otel import init_tracing, tool_span
@@ -36,7 +39,7 @@ log = logging.getLogger(__name__)
 
 _MODEL_ID_ENV = "BEDROCK_MODEL_ID"
 _GATEWAY_URL_ENV = "TRIAGE_GATEWAY_URL"
-_GATEWAY_TOKEN_ENV = "TRIAGE_GATEWAY_TOKEN"  # noqa: S105  (env var name, not a secret value)
+_GATEWAY_SERVICE = "bedrock-agentcore"
 _MAX_TURNS = 6
 
 
@@ -70,17 +73,40 @@ _MCP_CLIENT_VERSION = "0.1.0"
 _initialized = False
 
 
-def _gateway_headers() -> dict[str, str]:
-    token = os.environ.get(_GATEWAY_TOKEN_ENV)
-    headers = {"content-type": "application/json", "accept": "application/json"}
-    if token:
-        headers["authorization"] = f"Bearer {token}"
-    return headers
+def _aws_region() -> str:
+    return os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-east-1"
+
+
+def _signed_post(url: str, payload: dict[str, Any], timeout: float) -> httpx.Response:
+    """POST to the AgentCore Gateway with SigV4 (AWS_IAM authorizer).
+
+    Credentials are resolved from the container's IAM role via the boto3
+    default provider chain — AgentCore Runtime injects them as task role
+    creds. We sign with botocore, then hand the headers to httpx so we
+    keep the small dependency footprint already in use.
+    """
+    body = json.dumps(payload).encode("utf-8")
+    request = AWSRequest(
+        method="POST",
+        url=url,
+        data=body,
+        headers={
+            "content-type": "application/json",
+            "accept": "application/json, text/event-stream",
+        },
+    )
+    credentials = boto3.Session().get_credentials()
+    if credentials is None:
+        raise RuntimeError("No AWS credentials available to SigV4-sign the gateway request")
+    SigV4Auth(credentials.get_frozen_credentials(), _GATEWAY_SERVICE, _aws_region()).add_auth(
+        request
+    )
+    return httpx.post(url, content=body, headers=dict(request.headers), timeout=timeout)
 
 
 def _post_jsonrpc(envelope: dict[str, Any]) -> dict[str, Any]:
     url = os.environ[_GATEWAY_URL_ENV]
-    response = httpx.post(url, json=envelope, headers=_gateway_headers(), timeout=30.0)
+    response = _signed_post(url, envelope, timeout=30.0)
     response.raise_for_status()
     body: dict[str, Any] = response.json()
     if "error" in body:
@@ -114,11 +140,11 @@ def _ensure_initialized() -> None:
         init_response.get("result", {}).get("serverInfo", {}),
     )
     # Notifications carry no id and expect no response body; the gateway may
-    # 202 it. We still go through httpx so the request hits the wire.
-    httpx.post(
+    # 202 it. Still SigV4-signed because the AWS_IAM authorizer doesn't
+    # exempt them.
+    _signed_post(
         os.environ[_GATEWAY_URL_ENV],
-        json={"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}},
-        headers=_gateway_headers(),
+        {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}},
         timeout=10.0,
     )
     _initialized = True
@@ -243,8 +269,8 @@ def _run_loop(alarm_payload: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-async def health(_request: Request) -> PlainTextResponse:
-    return PlainTextResponse("ok")
+async def ping(_request: Request) -> JSONResponse:
+    return JSONResponse({"status": "Healthy", "time_of_last_update": int(time.time())})
 
 
 async def invocations(request: Request) -> JSONResponse:
@@ -267,7 +293,7 @@ async def invocations(request: Request) -> JSONResponse:
 
 app = Starlette(
     routes=[
-        Route("/health", health, methods=["GET"]),
+        Route("/ping", ping, methods=["GET"]),
         Route("/invocations", invocations, methods=["POST"]),
     ]
 )

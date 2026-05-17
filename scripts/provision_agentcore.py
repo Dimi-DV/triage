@@ -109,13 +109,16 @@ def _create_workload_identity(control: Any, role_arn: str) -> str:
     return str(result.get("workloadIdentityArn", ""))
 
 
-def _create_gateway(control: Any, role_arn: str) -> str:
+def _create_gateway(control: Any, role_arn: str) -> tuple[str, str]:
+    """Create (or reuse) the gateway and return (gatewayId, gatewayUrl).
+
+    AWS_IAM authorizer: callers sign with SigV4 using their existing IAM
+    roles. No authorizerConfiguration block is required (verified against
+    live API shape). The Gateway's create_gateway API has no
+    policyEngineConfiguration parameter — Cedar enforcement at the
+    Gateway must use interceptorConfigurations (Lambda); deferred.
+    """
     log.info("Creating AgentCore Gateway (AWS_IAM authorizer)")
-    # AWS_IAM authorizer: callers sign with SigV4 using their existing IAM
-    # roles. No authorizerConfiguration block is required (verified against
-    # live API shape). The Gateway's create_gateway API has no
-    # policyEngineConfiguration parameter — Cedar enforcement at the
-    # Gateway must use interceptorConfigurations (Lambda); deferred.
     result = _create_or_reuse(
         control.create_gateway,
         {
@@ -126,7 +129,23 @@ def _create_gateway(control: Any, role_arn: str) -> str:
         },
         "Gateway",
     )
-    return str(result.get("gatewayIdentifier", ""))
+    gateway_id = str(result.get("gatewayIdentifier", ""))
+    gateway_url = str(result.get("gatewayUrl", ""))
+    if not gateway_url:
+        # _create_or_reuse returns {} on conflict; fetch the existing record.
+        existing = next(
+            (
+                g
+                for g in control.list_gateways().get("items", [])
+                if g.get("name") == GATEWAY_TARGET_NAME
+            ),
+            None,
+        )
+        if existing is None:
+            raise RuntimeError(f"Gateway '{GATEWAY_TARGET_NAME}' not found after create_or_reuse")
+        gateway_id = gateway_id or existing["gatewayId"]
+        gateway_url = control.get_gateway(gatewayIdentifier=gateway_id)["gatewayUrl"]
+    return gateway_id, gateway_url
 
 
 def _create_mcp_target(control: Any, gateway_id: str, mcp_url: str) -> None:
@@ -216,7 +235,7 @@ def main(argv: list[str] | None = None) -> int:
 
     control = _control_client()
     _create_workload_identity(control, outputs["agent_runtime_role_arn"])
-    gateway_id = _create_gateway(control, outputs["agent_runtime_role_arn"])
+    gateway_id, gateway_url = _create_gateway(control, outputs["agent_runtime_role_arn"])
     if gateway_id:
         _create_mcp_target(control, gateway_id, outputs["mcp_endpoint_url"])
     runtime_arn = _create_runtime(
@@ -224,7 +243,7 @@ def main(argv: list[str] | None = None) -> int:
         outputs["agent_runtime_role_arn"],
         f"{outputs['agent_repository_url']}:latest",
         outputs["audit_bucket_name"],
-        outputs["mcp_endpoint_url"],
+        gateway_url,
     )
     if runtime_arn:
         _write_runtime_arn(runtime_arn, outputs["agentcore_runtime_arn_parameter"])
