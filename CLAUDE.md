@@ -24,8 +24,6 @@ An AIOps incident response agent on AWS Bedrock AgentCore. Mirrors the AWS DevOp
 
 ## Commands
 
-<!-- FILL ON DAY 33: validate these once tooling is wired up -->
-
 | Task | Command |
 |---|---|
 | Deploy production stack | `cd terraform/stack && terraform plan && terraform apply` |
@@ -33,7 +31,7 @@ An AIOps incident response agent on AWS Bedrock AgentCore. Mirrors the AWS DevOp
 | Run MCP server locally | `make run-mcp-server` (= `uv run python -m triage.mcp_server`) |
 | Run eval suite | `cd evals && python run_evals.py` |
 | Start FIS experiment | `aws fis start-experiment --experiment-template-id <ID>` |
-| Tail audit log | `aws s3 cp s3://<FILL>/$(date +%Y-%m-%d) - \| tail -50` |
+| Tail audit log | `aws s3 cp "s3://$(terraform -chdir=terraform/stack output -raw audit_bucket_name)/$(date +%Y-%m-%d)" - \| tail -50` |
 
 ## Naming conventions
 
