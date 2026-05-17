@@ -242,6 +242,17 @@ resource "aws_vpc_security_group_ingress_rule" "app_from_alb" {
   description                  = "App traffic from the ALB"
 }
 
+# Egress for app tier. The AWS Terraform provider does NOT create the
+# implicit "allow all egress" rule that the AWS console gives you by
+# default — without this, ECS tasks can't reach ECR/SSM/Secrets Manager
+# and fail to start with i/o timeouts. Surfaced during Day 35 deploy.
+resource "aws_vpc_security_group_egress_rule" "app_all" {
+  security_group_id = aws_security_group.app.id
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "-1"
+  description       = "App tier outbound (NAT to AWS APIs + Slack + Bedrock)"
+}
+
 # ---------------------------------------------------------------------------
 # RDS — Postgres, Multi-AZ
 # ---------------------------------------------------------------------------

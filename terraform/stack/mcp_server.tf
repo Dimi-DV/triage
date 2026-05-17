@@ -174,6 +174,14 @@ resource "aws_ecs_task_definition" "mcp_server" {
   execution_role_arn       = aws_iam_role.mcp_task_execution.arn
   task_role_arn            = aws_iam_role.mcp_task.arn
 
+  # Images are built on the developer machine (ARM64 / Graviton-class).
+  # Fargate defaults to LINUX/X86_64; without this block, container starts
+  # with "exec format error". Graviton Fargate is also ~20% cheaper.
+  runtime_platform {
+    cpu_architecture        = "ARM64"
+    operating_system_family = "LINUX"
+  }
+
   container_definitions = jsonencode([
     {
       name      = "mcp-server"

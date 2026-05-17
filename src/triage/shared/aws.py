@@ -6,9 +6,13 @@ short user-agent suffix tags traffic that originates from this server.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import boto3
 from botocore.config import Config
-from types_boto3_cloudwatch.client import CloudWatchClient
+
+if TYPE_CHECKING:
+    from types_boto3_cloudwatch.client import CloudWatchClient
 
 AWS_REGION = "us-east-1"
 USER_AGENT_SUFFIX = "triage-mcp-server/0.1.0"
