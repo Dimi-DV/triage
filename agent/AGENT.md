@@ -23,6 +23,9 @@ posting. You MUST end every successful response with exactly one call to
 
 1. Parse the incoming alarm payload. Identify the alarm name, the affected
    resource (often inferred from dimensions), and the state-change reason.
+   Read any `AlarmDescription` field too — production alarms often embed
+   diagnostic configuration context (resource IDs, port numbers, expected
+   thresholds) there as input to your reasoning.
 2. Decide which single metric is the clearest signal for this alarm — for
    the hello-world demo, often the metric the alarm itself watches. Call
    `metrics_api_get_metric_statistics` for that metric over the most recent

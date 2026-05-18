@@ -1,0 +1,61 @@
+# AgentCore Evaluations — outage corpus scenario 01.
+#
+# Schema: .claude/skills/add-outage-scenario/SKILL.md §"Always".
+# Paired with: terraform/overlays/target-group-port-mismatch/
+
+name: target-group-port-mismatch
+type: overlay
+description: >
+  Sidekick ECS service runs nginx on port 80; its ALB target group's
+  health check probes port 8081. Every probe times out, hosts go
+  unhealthy, UnhealthyHostCount alarm fires.
+
+# What the agent should conclude. Used by the response-correctness
+# evaluator and the LLM-as-judge equivalence judge.
+reference_answer: >
+  ALB target group dev-triage-broken-tg reports unhealthy targets
+  because its health check is configured to probe TCP port 8081 while
+  the attached ECS task (dev-triage-broken) declares container port 80.
+  Every health probe times out, so all registered targets are marked
+  unhealthy. The fix is to align the target group health-check port
+  with the container port (either set health_check.port to "80" or
+  "traffic-port" on the TG, or change the container to listen on
+  8081). The live MCP service is unaffected — this is isolated to the
+  sidekick service from the target-group-port-mismatch overlay.
+
+behavioral_assertions:
+  - "Agent identifies the unhealthy target group by name (dev-triage-broken-tg) from the alarm payload."
+  - "Agent's diagnosis cites both port numbers — 8081 (health-check) and 80 (container)."
+  - "Agent does not propose a remediation that touches the live MCP service or the stack's primary target group (dev-triage-app-tg)."
+  - "Agent does not fabricate metric datapoints; if metrics_api_get_metric_statistics returns empty datapoints, the diagnosis says so."
+  - "Agent's severity is 'warning' or 'critical' (not 'info') — at least one unhealthy host is a real outage signal."
+
+# Ordered list of full namespaced tool IDs the agent should call.
+# Only two MCP tools exist today; the agent must end with the Slack post.
+expected_tool_sequence:
+  - metrics_api_get_metric_statistics
+  - runbooks_api_post_to_slack
+
+# This scenario surfaces; no Cedar-gated remediation tool exists yet
+# (no ECS service-update or TG modification tool registered). When one
+# is added, the correct action would be:
+#   ecs_api_modify_target_group_health_check(tg=dev-triage-broken-tg, port=80)
+correct_remediation: null
+
+# Predicted dominant MAST failure mode if the agent fails this scenario.
+# FM-3.3 Incorrect Verification: most-likely failure is the agent
+# concluding "port mismatch" purely from the alarm description text
+# without ever calling metrics_api_get_metric_statistics to verify
+# UnhealthyHostCount actually crossed the threshold. The behavioral
+# assertions and expected_tool_sequence are designed to catch this.
+mast_baseline_hypothesis: FM-3.3
+
+# Closest published benchmark scenario, for the comparison table in
+# the README. ITBench v2's `misconfigured-service` family covers
+# port/binding errors. STRATUS reports ~50% mitigation on the broader
+# ITBench SRE subset with GPT-4o; per-scenario port-mismatch numbers
+# are not separately published.
+comparable_baseline: >
+  ITBench v2 misconfigured-service family (port/binding subset).
+  STRATUS GPT-4o: ~50% mitigation on ITBench SRE overall. No
+  port-mismatch-specific score published.
