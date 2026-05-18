@@ -13,14 +13,15 @@ An AIOps incident response agent on AWS Bedrock AgentCore. Mirrors the AWS DevOp
 - **Agent platform:** Amazon Bedrock AgentCore (Runtime, Gateway, Identity, Memory, Observability)
 - **MCP server:** Custom Python; four namespaces — `ecs-api`, `logs-api`, `metrics-api`, `runbooks-api`
 - **IaC:** Terraform; state in S3 (`dimitrije-tf-state-2026`), locking via DynamoDB (`terraform-locks`)
-- **Workload:** ECS Fargate in Multi-AZ VPC `prod-vpc` (10.0.0.0/16); RDS Multi-AZ; ALB; WAF
+- **Workload:** ECS Fargate in Multi-AZ VPC `dev-triage-vpc` (10.0.0.0/16); RDS Multi-AZ; ALB; WAF
 - **Auth:** AWS IAM (SigV4) at AgentCore Gateway. The "OAuth 2.1 via AgentCore Identity" line in the decision doc doesn't match the live API — there's no service-side OAuth issuer in `bedrock-agentcore-control`. Callers (alarm Lambda, Runtime) sign with their IAM roles.
 - **Policy:** Cedar policy text in `cedar-policies/`. Enforcement at the Gateway is **deferred** — `CreateGateway` has no `policyEngineConfiguration` param; wiring requires a Lambda interceptor (`interceptorConfigurations`).
 - **Audit:** S3 Object Lock bucket, append-only
-- **Eval:** AgentCore Evaluations — 5+ built-in evaluators + 1–2 custom LLM-as-judge
+- **Eval:** AgentCore Evaluations — on-demand `bedrock-agentcore.Evaluate` is the primary mode (synchronous, takes reference inputs from scenario YAMLs natively); online `CreateOnlineEvaluationConfig` is secondary, for production sampling. 5 built-ins enabled online + 2 custom LLM-as-judge evaluators registered (work in on-demand). 16 built-ins total are service-managed.
 - **Outage corpus:** 4 AWS FIS scenarios + 4–6 Terraform overlay misconfigurations
 - **Failure annotation:** MAST taxonomy (IBM/Berkeley)
-- **Python toolchain:** `uv` for deps + venv, `ruff` for format/lint (no `black`, no `flake8`, no `isort`), `pyright` for type checking. Pytest with `@pytest.mark.unit` markers.
+- **Python toolchain:** `uv` for deps + venv, `ruff` for format/lint (no `black`, no `flake8`, no `isort`), `mypy` for type checking (strict on `src/`; loose on tests). Pytest with `@pytest.mark.unit` markers.
+- **Naming-prefix drift:** the AgentCore Runtime is hardcoded as `prod_triage_runtime` in `scripts/provision_agentcore.py`, while Terraform `local.name_prefix` resolves to `dev-triage`. IAM policies referencing the runtime name must hardcode `prod_triage_runtime-*`, not synthesize from the Terraform local. See `feedback_naming_prefix_drift` memory.
 
 ## Commands
 
@@ -29,15 +30,16 @@ An AIOps incident response agent on AWS Bedrock AgentCore. Mirrors the AWS DevOp
 | Deploy production stack | `cd terraform/stack && terraform plan && terraform apply` |
 | Deploy outage overlay | `cd terraform/overlays/<scenario> && terraform apply` |
 | Run MCP server locally | `make run-mcp-server` (= `uv run python -m triage.mcp_server`) |
-| Run eval suite | `cd evals && python run_evals.py` |
+| Run a single eval scenario | `make eval-scenario SCENARIO=01-target-group-port-mismatch` (or `uv run python evals/run_evals.py --scenario <slug>` from project root) |
 | Start FIS experiment | `aws fis start-experiment --experiment-template-id <ID>` |
-| Tail audit log | `aws s3 cp "s3://$(terraform -chdir=terraform/stack output -raw audit_bucket_name)/$(date +%Y-%m-%d)" - \| tail -50` |
+| List today's audit objects | `aws s3 ls "s3://$(terraform -chdir=terraform/stack output -raw audit_bucket_name)/events/$(date -u +%Y/%m/%d)/"` |
+| Read one audit object | `aws s3 cp "s3://$(terraform -chdir=terraform/stack output -raw audit_bucket_name)/events/$(date -u +%Y/%m/%d)/<uuid>.json" - \| jq .` |
 
 ## Naming conventions
 
 - **MCP tools:** `<namespace>_<verb>_<noun>` — e.g. `metrics_api_query_cloudwatch`, `ecs_api_describe_service`
 - **Agent system prompts:** `agent/AGENT.md` (singular). Never `AGENTS.md` inside `agent/` — that would collide with the dev-side AGENTS.md convention used by Codex CLI.
-- **Terraform resources:** `<env>-<purpose>-<resource>` — e.g. `prod-agent-runtime`, `dev-audit-bucket`
+- **Terraform resources:** `<env>-<purpose>-<resource>` — e.g. `dev-triage-agent-runtime`, `dev-triage-audit-<account-id>`. Driven off `local.name_prefix = "${var.environment}-${var.project_name}"`
 - **Cedar runtime actions:** `<GatewayTargetName>___<tool_name>` — TRIPLE underscore. AWS docs are inconsistent (some show double); the verified runtime format matching MCP `tools/list` output is triple. Example: `TriageMcpGateway___metrics_api_query_cloudwatch`.
 - **FIS templates:** `fis-templates/<fault-type>.tf`
 - **Eval scenarios:** `evals/scenarios/<NN>-<description>.yaml`
@@ -54,11 +56,11 @@ An AIOps incident response agent on AWS Bedrock AgentCore. Mirrors the AWS DevOp
 ## Soft rules (preferences)
 
 - The per day guideline as to what is to be built when is a soft guide not a hard rule. Feel free to touch or create infrastructure from any "day" as you see fit or think will work best
-- Pin every dependency version (`requirements.txt`, Terraform provider versions)
+- Pin every dependency version (`pyproject.toml` + `uv.lock` for Python, version constraints in `terraform/**/versions.tf` for providers)
 - Pin the MCP protocol version in the server config (statelessness migration coming in 2026 spec)
 - OpenTelemetry spans on every MCP tool — no retrofitting later
 - Tests before declaring an MCP tool done
-- Branch per day: `feat/day-NN-<feature>`; merge to `main` via PR end of day
+- Commit straight to `main` end of day with the `Day NN Hour M:` journal-style message. The "branch per day → PR" pattern was the original plan; in practice the project ships direct-to-main and the git log is the build journal
 
 ## When stuck
 
