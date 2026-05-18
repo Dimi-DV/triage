@@ -137,6 +137,15 @@ data "aws_iam_policy_document" "mcp_task" {
     resources = ["*"]
   }
 
+  # ecs-api namespace inspection. DescribeTargetHealth is the first tool;
+  # extend the action list (and keep this scoped to read verbs) when more
+  # ecs-api tools land.
+  statement {
+    sid       = "ReadOnlyElbV2"
+    actions   = ["elasticloadbalancing:DescribeTargetHealth"]
+    resources = ["*"]
+  }
+
   statement {
     sid       = "PutAuditObjects"
     actions   = ["s3:PutObject"]

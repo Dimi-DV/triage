@@ -231,11 +231,15 @@ resource "aws_ecs_service" "broken" {
 resource "aws_cloudwatch_metric_alarm" "broken_tg_unhealthy" {
   alarm_name = "${local.broken_name}-tg-unhealthy"
 
+  # Realistic ops-style description: names the affected resource, restates
+  # the metric symptom, and stops there. The agent must walk the chain
+  # itself — pull target health to find the failure reason and the
+  # configured health-check vs registered port — instead of reading the
+  # port numbers off the alarm description.
   alarm_description = join("\n", [
-    "Target group ${aws_lb_target_group.broken.name} reports unhealthy targets.",
-    "Health check probes TCP port ${var.broken_health_check_port}.",
-    "The attached ECS task (${aws_ecs_task_definition.broken.family}) declares container port ${var.container_port}.",
-    "Investigate."
+    "ALB target group ${aws_lb_target_group.broken.name} has unhealthy targets.",
+    "Health check probes are failing. Investigate the root cause and the",
+    "appropriate remediation.",
   ])
 
   namespace = "AWS/ApplicationELB"

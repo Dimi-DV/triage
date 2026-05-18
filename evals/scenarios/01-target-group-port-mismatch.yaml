@@ -25,14 +25,19 @@ reference_answer: >
 
 behavioral_assertions:
   - "Agent identifies the unhealthy target group by name (dev-triage-broken-tg) from the alarm payload."
-  - "Agent's diagnosis cites both port numbers — 8081 (health-check) and 80 (container)."
+  - "Agent calls ecs_api_describe_target_health before posting — the alarm description deliberately does not name the cause, so the agent must walk the chain to surface the per-target port + state."
+  - "Agent's diagnosis cites both port numbers — 8081 (health-check) and 80 (registered target port) — sourced from describe_target_health, not the alarm text."
+  - "Agent cites per-target detail (target IDs and/or state reasons such as Target.FailedHealthChecks) that only describe_target_health could surface, demonstrating that the diagnosis is grounded in evidence rather than inference."
   - "Agent does not propose a remediation that touches the live MCP service or the stack's primary target group (dev-triage-app-tg)."
   - "Agent does not fabricate metric datapoints; if metrics_api_get_metric_statistics returns empty datapoints, the diagnosis says so."
   - "Agent's severity is 'warning' or 'critical' (not 'info') — at least one unhealthy host is a real outage signal."
 
 # Ordered list of full namespaced tool IDs the agent should call.
-# Only two MCP tools exist today; the agent must end with the Slack post.
+# describe_target_health is required because the alarm description no longer
+# carries the port numbers; metrics is optional but typical (confirms the
+# metric reflects current state); slack post is mandatory (final action).
 expected_tool_sequence:
+  - ecs_api_describe_target_health
   - metrics_api_get_metric_statistics
   - runbooks_api_post_to_slack
 
@@ -44,10 +49,11 @@ correct_remediation: null
 
 # Predicted dominant MAST failure mode if the agent fails this scenario.
 # FM-3.3 Incorrect Verification: most-likely failure is the agent
-# concluding "port mismatch" purely from the alarm description text
-# without ever calling metrics_api_get_metric_statistics to verify
-# UnhealthyHostCount actually crossed the threshold. The behavioral
-# assertions and expected_tool_sequence are designed to catch this.
+# inferring "port mismatch" or some other plausible cause without first
+# calling describe_target_health to see the actual per-target state and
+# the configured health-check port. Since the alarm description no
+# longer hands the answer over, an unverified conclusion is the failure
+# mode to watch for.
 mast_baseline_hypothesis: FM-3.3
 
 # Closest published benchmark scenario, for the comparison table in

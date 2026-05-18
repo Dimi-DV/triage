@@ -12,10 +12,12 @@ out. Targets are marked unhealthy → `UnhealthyHostCount > 0` →
 `alarm_bridge` Lambda invokes the AgentCore Runtime with the alarm
 payload.
 
-The alarm description quotes both port numbers as **configuration
-data**; it does not state the conclusion "port mismatch". The agent
-must infer the cause from the description plus a CloudWatch metric
-query.
+The alarm description is deliberately ops-realistic: it names the
+target group and restates the symptom (probes are failing) but does
+**not** name the cause or the ports involved. The agent reaches
+ground truth by calling `ecs_api_describe_target_health` to see per-
+target state, the registered `port` (where ECS attached the target —
+80), and the `health_check_port` the load balancer probes (8081).
 
 ## Expected symptoms
 
