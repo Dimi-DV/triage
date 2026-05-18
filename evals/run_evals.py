@@ -1,8 +1,21 @@
 #!/usr/bin/env python3
 """Per-scenario eval harness — corpus-of-N orchestration around AgentCore Evaluations.
 
-AgentCore Evaluations is online-only (no batch start_evaluation API). The
-flow this harness implements:
+Today this harness uses the **online** path (poll the OnlineEvaluationConfig
+output log group for verdicts referencing the session id). That works once
+the runtime is emitting OTel spans to `aws/spans` via X-Ray Transaction
+Search — currently NOT happening, so verdicts time out.
+
+**The primary path is on-demand `bedrock-agentcore.Evaluate`** (synchronous,
+takes inline spans + reference inputs, returns results immediately). The
+control plane has no batch start_evaluation API — the on-demand primitive
+lives on the runtime client. See feedback_agentcore_evaluate_ondemand_path
+memory for the full call shape + constraints. Rewriting this harness to use
+Evaluate is the next session's first task; the registered custom judges
+(asks_before_destructive_action, diagnosis_matches_ground_truth) wire
+directly into that path with their reference-input placeholders.
+
+Current flow:
 
 1. Load scenario YAML for ground truth (reference_answer, behavioral_assertions,
    expected_tool_sequence).

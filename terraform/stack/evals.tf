@@ -2,18 +2,23 @@
 # AgentCore Evaluations — execution role + discovery params.
 # ============================================================
 #
-# AgentCore Evaluations is online-only (no batch start_evaluation API),
-# so the pattern is "one OnlineEvaluationConfig at 100% sampling
-# attached to the runtime log group; results emit to an output log
-# group AgentCore picks itself." outputConfig is NOT an input on
-# CreateOnlineEvaluationConfig — the service auto-provisions a
-# CloudWatch log group and returns its name in the response.
+# AgentCore Evaluations has two modes — on-demand (bedrock-agentcore.
+# Evaluate; synchronous; the project's primary mode for regression
+# scoring) and online (CreateOnlineEvaluationConfig; sampled traffic;
+# secondary). This file owns infra for the **online** path only: the
+# IAM role the eval service assumes when it reads runtime traces +
+# writes verdicts, plus SSM parameters the harness uses to discover
+# the auto-provisioned output log group.
 #
-# This file owns the IAM role the eval service assumes plus the SSM
-# parameters the provisioner script and the eval harness use to
-# discover the runtime artifacts (config id, output log group name).
-# The evaluators themselves and the OnlineEvaluationConfig are created
-# by scripts/provision_evaluators.py.
+# The on-demand path doesn't need any Terraform-managed infra — it's
+# just a runtime API call against evaluators that
+# scripts/provision_evaluators.py creates. (Those evaluators also work
+# with the online config; the only thing online-specific here is the
+# IAM role + log group plumbing.)
+#
+# Note: outputConfig is NOT an input on CreateOnlineEvaluationConfig
+# — the service auto-provisions a CloudWatch log group and returns
+# its name in the response. The harness reads that name from SSM.
 
 data "aws_iam_policy_document" "eval_execution_assume" {
   statement {

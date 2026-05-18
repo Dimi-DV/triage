@@ -6,11 +6,16 @@ custom LLM-as-judge evaluators, then creates (or updates) a single
 OnlineEvaluationConfig that attaches 6 built-ins + the 2 custom judges
 to the runtime log group at 100% sampling.
 
-AgentCore Evaluations as of 2026-05 is online-only; there is no batch
-start_evaluation API. The corpus-of-N pattern is simulated by the eval
-harness (evals/run_evals.py) which invokes the runtime per scenario and
-polls the auto-provisioned output log group for verdicts keyed to each
-session id.
+AgentCore Evaluations has TWO modes:
+  - On-demand via bedrock-agentcore.Evaluate (runtime client; synchronous;
+    the right primary mode for our regression-test corpus). The custom
+    evaluators registered here work with that path — no online-config
+    attachment is needed for on-demand callers.
+  - Online via CreateOnlineEvaluationConfig (this script's other half;
+    secondary path; for production sampling of live agent traffic).
+
+This script provisions both halves: the custom evaluators (usable by either
+mode) and an online config (only the secondary path).
 
 Idempotent: rerunning updates the existing evaluator + config in place.
 Writes the OnlineEvaluationConfig id and the discovered output log group
