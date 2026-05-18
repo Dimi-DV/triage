@@ -1,4 +1,4 @@
-.PHONY: help install lint format typecheck test test-cov check run-mcp-server eval eval-scenario plan apply destroy clean fis-list build-mcp-image push-mcp-image build-agent-image push-agent-image redeploy-mcp provision-agentcore
+.PHONY: help install lint format typecheck test test-cov check run-mcp-server eval eval-scenario plan apply destroy clean fis-list build-mcp-image push-mcp-image build-agent-image push-agent-image redeploy-mcp provision-agentcore provision-agentcore-dry agent-smoke
 
 # Default target: show help
 .DEFAULT_GOAL := help
@@ -85,6 +85,9 @@ provision-agentcore: ## Create / update AgentCore Runtime + Gateway + Identity +
 
 provision-agentcore-dry: ## Show what provision_agentcore would do
 	uv run python scripts/provision_agentcore.py --dry-run
+
+agent-smoke: ## End-to-end smoke: invoke AgentCore Runtime with a synthetic alarm
+	uv run python scripts/smoke_agent.py
 
 # ============================================================
 # Evaluation

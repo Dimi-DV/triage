@@ -129,7 +129,10 @@ def _create_gateway(control: Any, role_arn: str) -> tuple[str, str]:
         },
         "Gateway",
     )
-    gateway_id = str(result.get("gatewayIdentifier", ""))
+    # CreateGateway returns `gatewayId` (verified via boto3 service model);
+    # the inconsistent `gatewayIdentifier` we read previously was always empty
+    # so the target step was silently skipped on a fresh create.
+    gateway_id = str(result.get("gatewayId") or result.get("gatewayIdentifier", ""))
     gateway_url = str(result.get("gatewayUrl", ""))
     if not gateway_url:
         # _create_or_reuse returns {} on conflict; fetch the existing record.
