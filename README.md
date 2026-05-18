@@ -47,23 +47,23 @@ Decision doc with full architectural reasoning: [`docs/architecture-references/t
 | Component | Status |
 |---|---|
 | Production AWS stack (Terraform) | Day 32 VPC/RDS/ACM + Day 33 ALB/WAF/Route 53/ECS + Day 34/35 ECS service + AgentCore Runtime — **deployed to AWS** |
-| Custom MCP server (four namespaces) | Scaffolded; `metrics-api` has a CloudWatch read tool, `runbooks-api` has the Slack-post write tool with audit. `ecs-api` and `logs-api` namespaces still empty |
-| AgentCore Runtime + system prompt | Runtime created via `make provision-agentcore`; agent image runs Claude Sonnet 4.6 with the tool-use loop |
-| AgentCore Gateway | Created with `authorizerType=AWS_IAM` — callers sign with SigV4 |
-| Slack hello-world | Bot token in Secrets Manager; alarm → Lambda → Runtime → MCP → Slack path wired |
+| Custom MCP server (four namespaces) | Live tools: `metrics_api_get_metric_statistics`, `ecs_api_describe_target_health`, `runbooks_api_post_to_slack`. `logs-api` namespace + remaining ecs-api / runbooks-api tools not yet built |
+| AgentCore Runtime + system prompt | Runtime created via `make provision-agentcore`; agent image runs Claude Sonnet 4.5 with the tool-use loop (Anthropic model access live on the account) |
+| AgentCore Gateway | Created with `authorizerType=AWS_IAM` — callers sign with SigV4. DYNAMIC tool listing — new MCP tools propagate without re-provisioning the Gateway |
+| Slack | Bot token in Secrets Manager; alarm → Lambda → Runtime → MCP → Slack path verified end-to-end on real outages, posts land in `#all-triage` |
 | Cedar policy enforcement | `cedar-policies/agent-tools.cedar` written but **not yet wired** at the Gateway — `CreateGateway` has no policy-engine parameter; enforcement needs an interceptor Lambda (next iteration) |
-| Outage corpus (4 FIS + 4–6 Terraform overlays) | not started |
-| AgentCore Evaluations harness | not started |
-| MAST failure-mode annotation | not started |
+| Outage corpus (4 FIS + 4–6 Terraform overlays) | **1 of ~9 shipped.** Scenario 01 (`target-group-port-mismatch`, overlay) — see [`docs/scenario-runs/01-target-group-port-mismatch.md`](docs/scenario-runs/01-target-group-port-mismatch.md) for the per-run report. 7/7 behavioral assertions pass on v2 with no leading-witness hint in the alarm |
+| AgentCore Evaluations harness | not yet wired; `make eval` / `make eval-scenario` are stubs. Corpus-of-1 ready to score |
+| MAST failure-mode annotation | not yet active (kicks in when Evaluations harness produces failed runs) |
 | Stub subagent (A2A) | not started |
 
 ## Eval results
 
-<!-- FILL on Day 35 — the comparison table with built-in evaluator scores, custom LLM-as-judge verdict, MAST failure mode per failed run, comparison to STRATUS / ITBench / AIOpsLab baselines -->
+Manual scoring only at this stage — AgentCore Evaluations API wiring is pending. Per-run reports live in [`docs/scenario-runs/`](docs/scenario-runs/) and the source of truth for ground truth is `evals/scenarios/<NN>-<name>.yaml`. The table below will be replaced by AgentCore-Evaluations-emitted rows once `make eval-scenario` is wired.
 
-| Scenario | Evaluator scores | MAST mode (if fail) | Pass/Fail |
-|---|---|---|---|
-| <!-- one row per scenario --> | | | |
+| Scenario | Tool sequence (observed) | Behavioral assertions | MAST mode (if fail) | Verdict |
+|---|---|---|---|---|
+| [01 target-group-port-mismatch](docs/scenario-runs/01-target-group-port-mismatch.md) | metrics → describe_target_health → post_to_slack | 7/7 pass | — | Pass (manual) |
 
 ## Quickstart
 
@@ -138,11 +138,12 @@ Outage experiments (FIS) cost pennies per action. Stop conditions are configured
 - `src/triage/` — Python code (MCP server, agent runtime, shared utilities)
 - `scripts/provision_agentcore.py` — out-of-band creation of Gateway / Runtime / Workload Identity
 - `terraform/stack/` — production AWS infrastructure
-- `terraform/overlays/` — outage scenarios (misconfiguration overlays) — not yet populated
+- `terraform/overlays/` — outage scenarios (misconfiguration overlays); scenario 01 lives here, others TBD
 - `cedar-policies/` — Cedar policy files (Gateway interceptor wiring deferred)
-- `fis-templates/` — AWS FIS experiment templates — not yet populated
+- `fis-templates/` — AWS FIS experiment templates — not yet populated (gated on logs-api namespace)
 - `runbooks/` — operational procedures (parsed by `runbooks-api`) — not yet populated
-- `evals/` — AgentCore Evaluations ground-truth scenarios — not yet populated
+- `evals/scenarios/` — AgentCore Evaluations ground-truth YAMLs; one per scenario in the corpus
+- `docs/scenario-runs/` — per-scenario-run reports (tool sequence, assertion scoring, audit-object key, notable observations)
 - `docs/` — ADRs and architecture references
 
 ## Documentation
