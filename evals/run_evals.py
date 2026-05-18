@@ -60,41 +60,62 @@ def _ssm_value(client: Any, name: str) -> str:
     return str(value)
 
 
-def _synthetic_alarm_for(scenario: dict[str, Any]) -> dict[str, Any]:
-    """Build a CloudWatch-shaped alarm payload for the scenario.
+_UNHEALTHY_HOST_ALARM_REASON = (
+    "Threshold Crossed: 1 out of the last 2 datapoints was greater than "
+    "the threshold (0.0) for UnHealthyHostCount."
+)
 
-    Hardcoded shape per scenario type today; abstract when scenario 02 lands.
+
+def _unhealthy_host_payload(alarm_name: str, tg_name: str) -> dict[str, Any]:
+    """Shape a CloudWatch UnHealthyHostCount alarm payload for an ALB TG.
+
+    Matches what `cloudwatch:set-alarm-state` would fan out via SNS into the
+    alarm-bridge Lambda — the bridge re-shapes that into the runtime invoke
+    payload. Same shape v3 scenario 01 ran against.
     """
-    if scenario["name"] == "target-group-port-mismatch":
-        return {
-            "alarm": {
-                "AlarmName": "dev-triage-broken-tg-unhealthy",
-                "NewStateValue": "ALARM",
-                "NewStateReason": (
-                    "Threshold Crossed: 1 out of the last 2 datapoints "
-                    "[1.0 (2026-05-18T17:54:00)] was greater than the threshold "
-                    "(0.0) for UnHealthyHostCount."
-                ),
-                "StateChangeTime": "2026-05-18T17:54:30.000Z",
-                "Region": "US East (N. Virginia)",
-                "AlarmDescription": (
-                    "ALB target group dev-triage-broken-tg has unhealthy targets. "
-                    "Health check probes are failing. Investigate the root cause "
-                    "and the appropriate remediation."
-                ),
-                "Trigger": {
-                    "MetricName": "UnHealthyHostCount",
-                    "Namespace": "AWS/ApplicationELB",
-                    "Statistic": "Maximum",
-                    "Threshold": 0.0,
-                    "Dimensions": [
-                        {"name": "TargetGroup", "value": "targetgroup/dev-triage-broken-tg/*"},
-                        {"name": "LoadBalancer", "value": "app/dev-triage-alb/*"},
-                    ],
-                },
-            }
+    return {
+        "alarm": {
+            "AlarmName": alarm_name,
+            "NewStateValue": "ALARM",
+            "NewStateReason": _UNHEALTHY_HOST_ALARM_REASON,
+            "Region": "US East (N. Virginia)",
+            "AlarmDescription": (
+                f"ALB target group {tg_name} has unhealthy targets. Health "
+                "check probes are failing. Investigate the root cause and "
+                "the appropriate remediation."
+            ),
+            "Trigger": {
+                "MetricName": "UnHealthyHostCount",
+                "Namespace": "AWS/ApplicationELB",
+                "Statistic": "Maximum",
+                "Threshold": 0.0,
+                "Dimensions": [
+                    {"name": "TargetGroup", "value": f"targetgroup/{tg_name}/*"},
+                    {"name": "LoadBalancer", "value": "app/dev-triage-alb/*"},
+                ],
+            },
         }
-    raise NotImplementedError(f"No synthetic alarm builder for scenario {scenario['name']!r}")
+    }
+
+
+# Per-scenario synthetic alarm builders. Add a row here when adding a
+# scenario YAML — keeps the harness honest about which scenarios it can run.
+_SYNTHETIC_ALARMS: dict[str, dict[str, Any]] = {
+    "target-group-port-mismatch": _unhealthy_host_payload(
+        "dev-triage-broken-tg-unhealthy", "dev-triage-broken-tg"
+    ),
+    "missing-env-var": _unhealthy_host_payload(
+        "dev-triage-broken-env-tg-unhealthy", "dev-triage-broken-env-tg"
+    ),
+}
+
+
+def _synthetic_alarm_for(scenario: dict[str, Any]) -> dict[str, Any]:
+    """Build a CloudWatch-shaped alarm payload for the scenario."""
+    name = scenario["name"]
+    if name not in _SYNTHETIC_ALARMS:
+        raise NotImplementedError(f"No synthetic alarm builder for scenario {name!r}")
+    return _SYNTHETIC_ALARMS[name]
 
 
 def _invoke_runtime(

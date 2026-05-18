@@ -1,0 +1,67 @@
+# AgentCore Evaluations — outage corpus scenario 02.
+#
+# Schema: .claude/skills/add-outage-scenario/SKILL.md §"Always".
+# Paired with: terraform/overlays/missing-env-var/
+
+name: missing-env-var
+type: overlay
+description: >
+  Sidekick ECS service's task definition overrides the nginx entrypoint
+  with a shell command that gates startup on $REQUIRED_API_KEY, but the
+  container's environment block deliberately omits that variable. nginx
+  never starts, port 80 has nothing listening, target group health
+  checks fail, UnHealthyHostCount alarm fires.
+
+# What the agent should conclude. Used by the response-correctness
+# evaluator and the diagnosis_matches_ground_truth LLM-as-judge.
+reference_answer: >
+  ALB target group dev-triage-broken-env-tg has unhealthy targets
+  because the ECS task definition (dev-triage-broken-env) overrides
+  the container's entrypoint with a shell command that requires the
+  REQUIRED_API_KEY environment variable to start nginx, but the task
+  definition's environment block does not include REQUIRED_API_KEY.
+  The container exits to a sleep loop instead of starting nginx, so
+  port 80 has nothing listening and ALB health checks fail. The fix
+  is to add REQUIRED_API_KEY to the task definition's environment
+  block (or to the secrets block, sourcing the value from Secrets
+  Manager / Parameter Store). The live MCP service is unaffected —
+  this is isolated to the sidekick service from the missing-env-var
+  overlay.
+
+behavioral_assertions:
+  - "Agent identifies the unhealthy target group by name (dev-triage-broken-env-tg) from the alarm payload."
+  - "Agent calls ecs_api_describe_target_health before posting — the alarm description does not name the cause, so the agent must walk the chain to confirm targets are unhealthy with a port 80 health-check failure (not a port mismatch like scenario 01)."
+  - "Agent calls ecs_api_describe_task_definition to inspect the broken task definition. This is the load-bearing tool call for this scenario — without it the agent cannot see the command-vs-environment mismatch."
+  - "Agent's diagnosis names the missing environment variable specifically (REQUIRED_API_KEY) — not a generic 'env var missing' phrasing. The name is observable in the task definition's command field."
+  - "Agent does not propose a remediation that touches the live MCP service or the stack's primary target group (dev-triage-app-tg)."
+  - "Agent does not fabricate metric datapoints; if metrics_api_get_metric_statistics returns empty datapoints, the diagnosis says so."
+  - "Agent's severity is 'warning' or 'critical' (not 'info') — an unhealthy host means the sidekick service is down."
+
+# Ordered list of full namespaced tool IDs the agent should call.
+# describe_task_definition is required (unique to this scenario) because
+# the command-vs-environment mismatch is only visible there. Order is
+# best-of-set rather than strict; the in-order trajectory evaluator
+# (when wired) should accept extras between.
+expected_tool_sequence:
+  - ecs_api_describe_target_health
+  - ecs_api_describe_task_definition
+  - runbooks_api_post_to_slack
+
+# Correct write-side remediation when (and if) a Cedar-gated write tool
+# exists. Adding env vars to a task def is a register-task-definition
+# call against ECS — currently not exposed as an MCP tool.
+correct_remediation: null
+
+# Predicted dominant MAST failure mode if the agent fails this scenario.
+# FM-3.3 Incorrect Verification: most-likely failure is the agent
+# inferring "missing config" or "task crash" from the target-health
+# tool alone, without calling describe_task_definition to *see* which
+# env var is missing. Lazy generic-cause diagnosis instead of the
+# concrete-name diagnosis the task def's command field makes possible.
+mast_baseline_hypothesis: FM-3.3
+
+# Closest published benchmark scenario.
+comparable_baseline: >
+  ITBench v2 misconfigured-service family (config/secret subset).
+  STRATUS GPT-4o: ~50% mitigation on ITBench SRE overall. Per-scenario
+  missing-secret/missing-env numbers are not separately published.

@@ -64,6 +64,7 @@ Manual scoring still the source for the table below; AgentCore Evaluations pipel
 | Scenario | Tool sequence (observed) | Behavioral assertions | MAST mode (if fail) | Verdict |
 |---|---|---|---|---|
 | [01 target-group-port-mismatch (v3)](docs/scenario-runs/01-target-group-port-mismatch.md) | metrics → describe_target_health → describe_task_definition → post_to_slack | 7/7 pass | hedge softness ~ FM-2.6 Reasoning-Action Mismatch (didn't downgrade verdict) | Pass (manual) |
+| [02 missing-env-var (v1)](docs/scenario-runs/02-missing-env-var.md) | metrics → describe_target_health → post_to_slack | 4/7 pass, 2/7 fail (skipped `describe_task_definition`; generic "app crashed" diagnosis) | **FM-3.3 Incorrect Verification** (matches YAML's predicted dominant failure mode) | Fail (manual) |
 
 ## Quickstart
 
