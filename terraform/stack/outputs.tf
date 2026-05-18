@@ -44,7 +44,7 @@ output "route53_zone_id" {
 }
 
 output "route53_name_servers" {
-  description = "Route 53 NS records — set these at the registrar to delegate the zone. ACM validation hangs until delegation propagates."
+  description = "Route 53 NS records for the hosted zone. Registrar NS is kept in sync by aws_route53domains_registered_domain.main — no manual delegation step needed."
   value       = aws_route53_zone.main.name_servers
 }
 

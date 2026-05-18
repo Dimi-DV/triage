@@ -61,7 +61,7 @@ class SlackMessage(BaseModel):
         default=None,
         description="What a human should do next. Omit if no action is recommended.",
     )
-    channel: str = Field(description="Slack channel id or #name, e.g. '#triage-alerts'")
+    channel: str = Field(description="Slack channel id or #name, e.g. '#all-triage'")
 
 
 def _build_blocks(msg: SlackMessage) -> list[dict[str, Any]]:

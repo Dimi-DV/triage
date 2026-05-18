@@ -63,9 +63,10 @@ resource "aws_secretsmanager_secret" "slack_bot_token" {
   name        = "${local.name_prefix}-slack-bot-token"
   description = "Slack bot token (xoxb-…) for runbooks_api_post_to_slack"
 
-  # Dev knob: short recovery window so destroy/re-apply iteration doesn't
-  # hold a 30-day delete timer. Production should flip back to 30.
-  recovery_window_in_days = 7
+  # Dev knob: immediate delete so destroy/re-apply doesn't trip the
+  # "secret scheduled for deletion" trap on the next create. Production
+  # should flip back to 30 for accidental-destroy safety.
+  recovery_window_in_days = 0
 
   tags = {
     Name = "${local.name_prefix}-slack-bot-token"

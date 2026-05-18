@@ -311,15 +311,40 @@ resource "aws_db_instance" "main" {
 # Route 53 hosted zone
 # ---------------------------------------------------------------------------
 
-# Zone for the apex domain. The registrar must delegate to AWS by setting NS
-# records to aws_route53_zone.main.name_servers (see outputs.tf). ACM
-# validation will hang until delegation is complete.
+# Zone for the apex domain. Registrar NS delegation is auto-aligned to this
+# zone's name servers by aws_route53domains_registered_domain.main below —
+# so every destroy/reapply (which mints fresh hosted-zone NS shards) no
+# longer wedges ACM validation for 30+ min until the registrar is fixed by
+# hand. ACM still needs a few minutes for the new delegation to propagate
+# through the .dev TLD on a rebuild, but the apply itself is now unattended.
 resource "aws_route53_zone" "main" {
   name = var.domain_name
 
   tags = {
     Name = "${local.name_prefix}-zone"
   }
+}
+
+# Tie the Route 53 registrar's NS records to the hosted zone. The domain
+# itself was registered via the Route 53 registrar console (see
+# project notes) — this resource only manages the *settings* of an
+# already-registered domain, it doesn't register or transfer. On first
+# apply Terraform takes ownership and reconciles; on every later apply
+# (including post-destroy rebuilds) it re-aligns the registrar to whatever
+# NS records the new hosted zone got assigned.
+resource "aws_route53domains_registered_domain" "main" {
+  domain_name = var.domain_name
+
+  dynamic "name_server" {
+    for_each = aws_route53_zone.main.name_servers
+    content {
+      name = name_server.value
+    }
+  }
+
+  # Preserve clientTransferProhibited (already set on the domain) so a
+  # hijack can't move the domain out from under us.
+  transfer_lock = true
 }
 
 # A records for apex + www, aliased to the ALB. The ALB resource is defined

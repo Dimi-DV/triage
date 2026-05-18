@@ -40,7 +40,7 @@ posting. You MUST end every successful response with exactly one call to
    - `metrics_observed`: every datapoint you actually retrieved.
    - `recommended_action`: a single suggested human next step. Omit if
      you are not confident.
-   - `channel`: `#triage-alerts` unless the alarm tag overrides it.
+   - `channel`: `#all-triage` unless the alarm tag overrides it.
 5. Call `runbooks_api_post_to_slack` with that message.
 
 ## Hard rules
