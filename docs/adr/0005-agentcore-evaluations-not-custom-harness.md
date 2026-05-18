@@ -8,7 +8,7 @@
 
 Triage needs a systematic way to score the agent against the outage corpus. The original capstone plan included building a custom Python evaluation harness — load scenarios, invoke the agent, parse outputs, compute scores. That was a defensible choice when this project was first scoped (early May 2026).
 
-On March 31, 2026, AWS released **AgentCore Evaluations** to GA — a managed evaluation framework with 13 built-in evaluators (correctness, helpfulness, tool selection accuracy, tool parameter accuracy, goal success rate, safety, etc.), support for custom LLM-as-judge evaluators, and ground-truth modes (reference answers, behavioral assertions, expected tool execution sequences). Results visualize in CloudWatch alongside AgentCore Observability.
+On March 31, 2026, AWS released **AgentCore Evaluations** to GA — a managed evaluation framework with **16 built-in evaluators** (correctness, faithfulness, helpfulness, response relevance, conciseness, coherence, instruction following, refusal, harmfulness, stereotyping, tool selection accuracy, tool parameter accuracy, goal success rate, plus three trajectory-match evaluators that score expected tool sequences) and support for custom LLM-as-judge or Lambda-based evaluators. ~~13 built-ins, ground-truth modes including reference answers and behavioral assertions, results visualized in CloudWatch~~ — superseded by 2026-05-18 boto3-introspected reality (see `docs/architecture-references/agentcore-evaluations-2026-03.md`).
 
 The custom-harness path now has a clear competitor: a managed service from the same vendor (AWS) running on the same platform (AgentCore) producing the same kind of results, only better instrumented and more reproducible.
 
@@ -37,9 +37,10 @@ Do not build a custom Python evaluation harness.
 **Negative:**
 - Less under-the-hood visibility into how scoring works. Mitigation: AgentCore's evaluator definitions are introspectable; the README documents which evaluators are enabled and why.
 - Dependency on a March-2026-GA'd service for a piece of the architecture. Acceptable; AgentCore Evaluations is officially GA, not preview.
+- **AgentCore Evaluations is online-only (no batch `start_evaluation`).** The synchronous "run the corpus on every change" CI pattern this ADR originally implied has to be simulated by the harness: persistent `OnlineEvaluationConfig` at 100% sampling attached to the runtime log group, harness invokes per scenario and polls the output target for results keyed by session id. Verified 2026-05-18 via boto3 service-model introspection; see `agentcore-evaluations-2026-03.md` for the API divergence log. The free-day claim above is weakened — wiring online eval (IAM execution role + output target + log-group filter) is non-trivial but still less work than a full custom harness.
 
 **Neutral:**
-- Online mode (sampling live traffic in production) is the natural next-iteration extension. Triage v1 ships with on-demand mode only.
+- ~~Online mode is the natural next-iteration extension; v1 ships with on-demand mode only.~~ Inverted by reality: online is the only mode. Future iterations may add a true on-demand orchestration layer in the harness rather than the AWS service.
 
 ## References
 
