@@ -87,6 +87,58 @@ Recommended action: *"Verify that the application is listening on health check p
 
 ---
 
+## Run v3 — Day 36 Hour 5+ (2026-05-18, 17:54 UTC)
+
+### Setup
+
+- MCP tools live: `metrics_api_get_metric_statistics`, `ecs_api_describe_target_health`, **`ecs_api_describe_task_definition` (new)**, `runbooks_api_post_to_slack`. 4 tools total.
+- AgentCore Runtime: `prod_triage_runtime-9z2szV5TMm` **v7** — refreshed via `provision_agentcore.py`'s new `update_agent_runtime` path (Task 1 fix from this session). Env vars survived the update cleanly; the v2-era manual re-supply is no longer needed.
+- MCP task role: `terraform/stack/mcp_server.tf` `ReadOnlyEcsAndElbV2` statement now grants `ecs:DescribeTaskDefinition` alongside `elasticloadbalancing:DescribeTargetHealth`.
+- AGENT.md updated to document the new tool and prescribe its use when `describe_target_health` returns a registered-port / health-check-port split.
+- Alarm description unchanged from v2 (still stripped of port hints).
+
+### Observed
+
+- Overlay re-applied; broken-tg targets registered with `state=unhealthy` (`Target.FailedHealthChecks`), draining target left over from previous test cleanup.
+- Alarm flapped to ALARM at 17:54:30 UTC to force-trigger SNS.
+- Bridge Lambda invoked Runtime; tool sequence (from runtime logs):
+  - `metrics_api_get_metric_statistics` (17:54:25)
+  - `ecs_api_describe_target_health` (17:54:25)
+  - **`ecs_api_describe_task_definition`** (17:54:29) — the new tool, called for the first time
+  - `runbooks_api_post_to_slack` (17:54:36)
+- Audit object: `s3://dev-triage-audit-042729137214/events/2026/05/18/b7231296-e231-4ce7-b4e2-4b2291333d7c.json`.
+
+### Diagnosis text (from audit object)
+
+> Target group has 1 unhealthy target due to port mismatch between traffic and health checks.
+
+> **The target group is configured with a critical port mismatch: traffic is routed to port 80, but health checks probe port 8081.** Target 10.0.10.69 is unhealthy with failed health checks, and target 10.0.11.107 is draining. UnHealthyHostCount has been consistently 1.0 over the past 4 minutes. The application is either not listening on port 8081 (where health checks probe), or the target group's health check port configuration is incorrect.
+
+> Recommended action: *"Verify which port the application actually listens on. If it listens on port 80, reconfigure the target group's health check port to 80. If it listens on port 8081, update the target group's traffic port to 8081."*
+
+### Scoring against ground truth
+
+| Behavioral assertion (v2 YAML, still current) | Result |
+|---|---|
+| Identifies TG by name | Pass — names `dev-triage-broken-tg` |
+| Calls `ecs_api_describe_target_health` before posting | Pass — confirmed in runtime logs |
+| Cites both ports (8081 + 80), sourced from the tool | Pass — both quoted in summary and diagnosis |
+| Cites per-target detail only the tool could surface | Pass — target IPs (10.0.10.69, 10.0.11.107), states (unhealthy + draining) |
+| No remediation touching live MCP / primary TG | Pass — only references the broken TG |
+| No fabricated datapoints | Pass — "UnHealthyHostCount … 1.0 over the past 4 minutes" matches actual |
+| Severity is warning/critical | Pass — "critical" |
+
+**7/7 pass.** Same as v2 but the diagnosis is now grounded in two structural tools instead of one.
+
+### Notable
+
+- **The summary went definitive; the remediation kept its hedge — and that's likely correct.** v2 hedged on whether a port mismatch existed at all ("either the service is not listening on that port, or the health check endpoint is returning errors"). v3's *summary* names the mismatch with no ambiguity ("port mismatch between traffic and health checks"), and the *diagnosis paragraph* opens by stating the configured ports definitively. The hedge survives only in the closing sentence and the `recommended_action`, which now ask *which side to fix* rather than *whether there's a problem*. The task definition declares `containerPort=80` (which the tool returned correctly), so AGENT.md's prescription "if the task def only declares the registered port, the TG health-check port is misconfigured" was unambiguously applicable here — the agent didn't take that last synthesis step. But the hedge it kept is also defensible: a task-definition port mapping declares *what's exposed*, not *what the app is necessarily listening on*; for a read-only diagnostic agent that won't actually flip a config, presenting both remediation directions is honest behavior. Tracking this as a soft refinement to consider — either tighten AGENT.md to push the synthesis harder, or accept that read-only agents are right to defer the final remediation call to a human.
+- **MAST hypothesis update.** YAML predicted FM-3.3 *Incorrect Verification* as the dominant failure mode. v3 verified everything before concluding, but the conclusion still stopped one inference step short. Closer to **FM-2.6 *Reasoning-Action Mismatch*** (data supports a tighter conclusion than the agent committed to) than FM-3.3. Worth noting when wiring the eval harness.
+- **`update_agent_runtime` path worked end-to-end this run.** No env-var trap, no manual re-supply. Provision script went `create → ConflictException → list → update → poll READY` in 6 seconds. The trap is closed.
+- **Tool order divergence from YAML persists.** Agent: `metrics → describe_target_health → describe_task_definition → slack`. YAML: `describe_target_health → metrics → slack`. Strict-order trajectory evaluator (`Builtin.TrajectoryExactOrderMatch`) would fail this; `Builtin.TrajectoryInOrderMatch` (extras allowed between) would pass. The YAML's `expected_tool_sequence` should be re-framed for the in-order evaluator when the eval harness lands, not the strict-order one.
+
+---
+
 ## Manual evaluation methodology (used here, replaced by AgentCore Evaluations when wired)
 
 1. Read the audit object: `aws s3 cp s3://dev-triage-audit-042729137214/events/YYYY/MM/DD/<uuid>.json -` → inspect `args.diagnosis`, `args.recommended_action`, `args.severity`, `args.metrics_observed`.

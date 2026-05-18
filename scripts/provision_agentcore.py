@@ -31,10 +31,16 @@ Deferred for follow-up:
     `cedar-policies/agent-tools.cedar` stays in the repo for that work.
 
 Idempotency note: where we can detect an existing resource by name we
-reuse it; otherwise we create-and-tolerate-Conflict.
+reuse it; otherwise we create-and-tolerate-Conflict. The Runtime branch
+is special: `update_agent_runtime` is a FULL REPLACE (not a merge), so
+on conflict we list-and-update with **every** field the create call would
+have passed. Omitting `environmentVariables` on update wipes them and
+the next agent invoke crashes on `os.environ[...]`. See
+feedback_update_agent_runtime_replaces in memory.
 
 Run with `make provision-agentcore` after Terraform applies cleanly and
-both container images have been pushed.
+both container images have been pushed. Rerunning is safe: existing
+Runtime gets its image refreshed and env vars preserved.
 """
 
 from __future__ import annotations
@@ -45,6 +51,7 @@ import logging
 import pathlib
 import subprocess
 import sys
+import time
 from typing import Any
 
 import boto3
@@ -179,6 +186,67 @@ def _create_mcp_target(control: Any, gateway_id: str, mcp_url: str) -> None:
     )
 
 
+RUNTIME_NAME = f"{NAME_PREFIX.replace('-', '_')}_runtime"
+# agentRuntimeName regex is [a-zA-Z][a-zA-Z0-9_]{0,47} — no hyphens.
+
+
+def _runtime_config(
+    role_arn: str,
+    image_uri: str,
+    audit_bucket: str,
+    gateway_url: str,
+) -> dict[str, Any]:
+    """Build the kwargs dict shared by create_agent_runtime and update_agent_runtime.
+
+    Both APIs are full-shape: update wipes any field omitted, so callers must
+    pass everything they passed at create time.
+
+    BEDROCK_MODEL_ID is a cross-region inference profile, not a bare
+    foundation-model id; Bedrock Converse for Claude requires this.
+    """
+    return {
+        "agentRuntimeArtifact": {"containerConfiguration": {"containerUri": image_uri}},
+        "roleArn": role_arn,
+        "networkConfiguration": {"networkMode": "PUBLIC"},
+        "protocolConfiguration": {"serverProtocol": "HTTP"},
+        "environmentVariables": {
+            "BEDROCK_MODEL_ID": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+            "TRIAGE_GATEWAY_URL": gateway_url,
+            "TRIAGE_AUDIT_BUCKET": audit_bucket,
+            "TRIAGE_PRINCIPAL": "agent:prod-triage-agent",
+        },
+    }
+
+
+def _find_runtime_by_name(control: Any, name: str) -> tuple[str, str]:
+    """Return (agentRuntimeId, agentRuntimeArn) for an existing runtime by name."""
+    paginator = control.get_paginator("list_agent_runtimes")
+    for page in paginator.paginate():
+        for item in page.get("agentRuntimes", []):
+            if item.get("agentRuntimeName") == name:
+                return str(item["agentRuntimeId"]), str(item["agentRuntimeArn"])
+    raise RuntimeError(f"Runtime '{name}' not found in list_agent_runtimes")
+
+
+def _wait_for_runtime_ready(control: Any, runtime_id: str, timeout: int = 180) -> None:
+    """Block until the Runtime reaches READY. UPDATING is non-terminal."""
+    deadline = time.time() + timeout
+    last_status = ""
+    while time.time() < deadline:
+        info = control.get_agent_runtime(agentRuntimeId=runtime_id)
+        status = str(info.get("status", ""))
+        if status != last_status:
+            log.info("Runtime %s status=%s", runtime_id, status)
+            last_status = status
+        if status == "READY":
+            return
+        if status in {"CREATE_FAILED", "UPDATE_FAILED", "DELETE_FAILED"}:
+            failure = info.get("failureReason", "<no reason>")
+            raise RuntimeError(f"Runtime {runtime_id} entered {status}: {failure}")
+        time.sleep(5)
+    raise RuntimeError(f"Runtime {runtime_id} did not reach READY within {timeout}s")
+
+
 def _create_runtime(
     control: Any,
     role_arn: str,
@@ -186,33 +254,33 @@ def _create_runtime(
     audit_bucket: str,
     gateway_url: str,
 ) -> str:
-    log.info("Creating AgentCore Runtime (image %s)", image_uri)
-    result = _create_or_reuse(
-        control.create_agent_runtime,
-        {
-            # agentRuntimeName regex is [a-zA-Z][a-zA-Z0-9_]{0,47} — no hyphens.
-            "agentRuntimeName": f"{NAME_PREFIX.replace('-', '_')}_runtime",
-            "agentRuntimeArtifact": {"containerConfiguration": {"containerUri": image_uri}},
-            "roleArn": role_arn,
-            "networkConfiguration": {"networkMode": "PUBLIC"},
-            "protocolConfiguration": {"serverProtocol": "HTTP"},
-            "environmentVariables": {
-                # Bedrock Converse for Claude requires a cross-region inference
-                # profile ID, not the bare foundation-model ID. The previous
-                # value (`anthropic.claude-sonnet-4-6-v1:0`) returned
-                # ValidationException("invalid model identifier"). Once
-                # Anthropic model access is granted on this account, this
-                # profile will resolve; until then Converse returns
-                # AccessDeniedException with an aws-marketplace:Subscribe hint.
-                "BEDROCK_MODEL_ID": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
-                "TRIAGE_GATEWAY_URL": gateway_url,
-                "TRIAGE_AUDIT_BUCKET": audit_bucket,
-                "TRIAGE_PRINCIPAL": "agent:prod-triage-agent",
-            },
-        },
-        "Runtime",
-    )
-    return str(result.get("agentRuntimeArn", ""))
+    """Create the Runtime, or update it in-place if it already exists.
+
+    update_agent_runtime is a full replace: passing the same config as create
+    refreshes the container image (busts AgentCore's image cache) and preserves
+    env vars / role / network / protocol. Omitting any of those wipes them.
+    """
+    config = _runtime_config(role_arn, image_uri, audit_bucket, gateway_url)
+    try:
+        log.info("Creating AgentCore Runtime '%s' (image %s)", RUNTIME_NAME, image_uri)
+        result = control.create_agent_runtime(agentRuntimeName=RUNTIME_NAME, **config)
+        runtime_id = str(result["agentRuntimeId"])
+        runtime_arn = str(result["agentRuntimeArn"])
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code", "")
+        message = exc.response.get("Error", {}).get("Message", "")
+        is_conflict = code in {"ConflictException", "ResourceAlreadyExistsException"} or (
+            code == "ValidationException" and "already exists" in message
+        )
+        if not is_conflict:
+            raise
+        log.info("Runtime exists; calling update_agent_runtime to refresh image + env vars")
+        runtime_id, runtime_arn = _find_runtime_by_name(control, RUNTIME_NAME)
+        result = control.update_agent_runtime(agentRuntimeId=runtime_id, **config)
+        runtime_arn = str(result["agentRuntimeArn"])
+
+    _wait_for_runtime_ready(control, runtime_id)
+    return runtime_arn
 
 
 def _write_runtime_arn(runtime_arn: str, param_name: str) -> None:
@@ -265,8 +333,7 @@ def main(argv: list[str] | None = None) -> int:
         outputs["audit_bucket_name"],
         gateway_url,
     )
-    if runtime_arn:
-        _write_runtime_arn(runtime_arn, outputs["agentcore_runtime_arn_parameter"])
+    _write_runtime_arn(runtime_arn, outputs["agentcore_runtime_arn_parameter"])
 
     log.info("Provisioning complete.")
     return 0

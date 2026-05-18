@@ -1410,7 +1410,7 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "ruff" },
-    { name = "types-boto3", extra = ["cloudwatch", "elbv2", "s3", "secretsmanager"] },
+    { name = "types-boto3", extra = ["cloudwatch", "ecs", "elbv2", "s3", "secretsmanager"] },
 ]
 
 [package.metadata]
@@ -1431,7 +1431,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
     { name = "slack-sdk", specifier = ">=3.27" },
     { name = "starlette", specifier = ">=0.40" },
-    { name = "types-boto3", extras = ["cloudwatch", "elbv2", "s3", "secretsmanager"], marker = "extra == 'dev'", specifier = ">=1.35" },
+    { name = "types-boto3", extras = ["cloudwatch", "ecs", "elbv2", "s3", "secretsmanager"], marker = "extra == 'dev'", specifier = ">=1.35" },
     { name = "uvicorn", specifier = ">=0.30" },
 ]
 provides-extras = ["dev"]
@@ -1462,6 +1462,9 @@ wheels = [
 cloudwatch = [
     { name = "types-boto3-cloudwatch" },
 ]
+ecs = [
+    { name = "types-boto3-ecs" },
+]
 elbv2 = [
     { name = "types-boto3-elbv2" },
 ]
@@ -1479,6 +1482,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/d8/c9/0b2031f14f752e8ce421a6f77928240b2f9bad1ff2201a6ecd9d4fc7dc79/types_boto3_cloudwatch-1.43.2.tar.gz", hash = "sha256:f114275cbb6a8388e590d5b5ca1b4e56d367846baf12e4e9e6ffe969b6f8a620", size = 37841, upload-time = "2026-05-01T20:30:54.979Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/4c/3e/c2d6216f182d396d59ec697ed7858317530e57492e5901a79caea06d021c/types_boto3_cloudwatch-1.43.2-py3-none-any.whl", hash = "sha256:9173199e33687a815f07b12b4ec29f18cf49c9c092ca02de1193da7b40c5e37a", size = 47111, upload-time = "2026-05-01T20:30:53.339Z" },
+]
+
+[[package]]
+name = "types-boto3-ecs"
+version = "1.43.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b7/96/284d66c4e373aa710767789c1135da4fa2a53796add2861231429cb74e91/types_boto3_ecs-1.43.0.tar.gz", hash = "sha256:b08e500d40ace3339eec1cc229833f6644a835946fb90e16065bf26459909846", size = 60030, upload-time = "2026-04-29T23:01:40.601Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/db/57/66de4ee71c781df9ccbea6687bcc94b97bd7a89f3147abbed09eeeccc75f/types_boto3_ecs-1.43.0-py3-none-any.whl", hash = "sha256:583c70a54a67d7e2af0f6cde34e5cb02569db5ec25382de9dea372e9cfff743c", size = 68617, upload-time = "2026-04-29T23:01:38.658Z" },
 ]
 
 [[package]]

@@ -137,12 +137,15 @@ data "aws_iam_policy_document" "mcp_task" {
     resources = ["*"]
   }
 
-  # ecs-api namespace inspection. DescribeTargetHealth is the first tool;
-  # extend the action list (and keep this scoped to read verbs) when more
-  # ecs-api tools land.
+  # ecs-api namespace inspection. Read-only verbs only. Extend as more
+  # ecs-api tools land; keep this single statement instead of fragmenting
+  # per-service so the policy stays under the inline limit.
   statement {
-    sid       = "ReadOnlyElbV2"
-    actions   = ["elasticloadbalancing:DescribeTargetHealth"]
+    sid = "ReadOnlyEcsAndElbV2"
+    actions = [
+      "elasticloadbalancing:DescribeTargetHealth",
+      "ecs:DescribeTaskDefinition",
+    ]
     resources = ["*"]
   }
 

@@ -13,6 +13,7 @@ from botocore.config import Config
 
 if TYPE_CHECKING:
     from types_boto3_cloudwatch.client import CloudWatchClient
+    from types_boto3_ecs.client import ECSClient
     from types_boto3_elbv2.client import ElasticLoadBalancingv2Client
 
 AWS_REGION = "us-east-1"
@@ -31,3 +32,7 @@ def get_cloudwatch_client() -> CloudWatchClient:
 
 def get_elbv2_client() -> ElasticLoadBalancingv2Client:
     return boto3.client("elbv2", config=_default_config)
+
+
+def get_ecs_client() -> ECSClient:
+    return boto3.client("ecs", config=_default_config)
