@@ -86,6 +86,12 @@ provision-agentcore: ## Create / update AgentCore Runtime + Gateway + Identity +
 provision-agentcore-dry: ## Show what provision_agentcore would do
 	uv run python scripts/provision_agentcore.py --dry-run
 
+provision-evaluators: ## Create / update custom LLM-as-judge evaluators + OnlineEvaluationConfig
+	uv run python scripts/provision_evaluators.py
+
+provision-evaluators-dry: ## Show what provision_evaluators would do
+	uv run python scripts/provision_evaluators.py --dry-run
+
 agent-smoke: ## End-to-end smoke: invoke AgentCore Runtime with a synthetic alarm
 	uv run python scripts/smoke_agent.py
 
@@ -94,12 +100,12 @@ agent-smoke: ## End-to-end smoke: invoke AgentCore Runtime with a synthetic alar
 # ============================================================
 
 eval: ## Run full AgentCore Evaluations corpus against the deployed agent
-	@echo "TODO Day 35: wire up to AgentCore Evaluations API"
-	@echo "  Expected: aws bedrock-agentcore-control start-evaluation --evaluation-set-name triage-corpus"
+	@echo "TODO: loop run_evals.py over all evals/scenarios/*.yaml once corpus > 1"
+	@echo "Today: use 'make eval-scenario SCENARIO=01-target-group-port-mismatch'"
 
-eval-scenario: ## Run a single eval scenario (usage: make eval-scenario SCENARIO=az-slowdown)
+eval-scenario: ## Run a single eval scenario (usage: make eval-scenario SCENARIO=01-target-group-port-mismatch)
 	@if [ -z "$(SCENARIO)" ]; then echo "Usage: make eval-scenario SCENARIO=<name>"; exit 1; fi
-	@echo "TODO Day 35: run scenario $(SCENARIO)"
+	uv run python evals/run_evals.py --scenario $(SCENARIO)
 
 # ============================================================
 # Infrastructure (Terraform)

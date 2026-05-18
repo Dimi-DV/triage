@@ -47,23 +47,23 @@ Decision doc with full architectural reasoning: [`docs/architecture-references/t
 | Component | Status |
 |---|---|
 | Production AWS stack (Terraform) | Day 32 VPC/RDS/ACM + Day 33 ALB/WAF/Route 53/ECS + Day 34/35 ECS service + AgentCore Runtime — **deployed to AWS** |
-| Custom MCP server (four namespaces) | Live tools: `metrics_api_get_metric_statistics`, `ecs_api_describe_target_health`, `runbooks_api_post_to_slack`. `logs-api` namespace + remaining ecs-api / runbooks-api tools not yet built |
-| AgentCore Runtime + system prompt | Runtime created via `make provision-agentcore`; agent image runs Claude Sonnet 4.5 with the tool-use loop (Anthropic model access live on the account) |
+| Custom MCP server (four namespaces) | **4 live tools:** `metrics_api_get_metric_statistics`, `ecs_api_describe_target_health`, `ecs_api_describe_task_definition`, `runbooks_api_post_to_slack`. `logs-api` namespace + remaining ecs-api / runbooks-api tools not yet built |
+| AgentCore Runtime + system prompt | Runtime created via `make provision-agentcore`; refreshes on rerun via `update_agent_runtime` with env-vars preserved (see `feedback_update_agent_runtime_replaces` for the full-replace trap). Agent runs Claude Sonnet 4.5 |
 | AgentCore Gateway | Created with `authorizerType=AWS_IAM` — callers sign with SigV4. DYNAMIC tool listing — new MCP tools propagate without re-provisioning the Gateway |
 | Slack | Bot token in Secrets Manager; alarm → Lambda → Runtime → MCP → Slack path verified end-to-end on real outages, posts land in `#all-triage` |
 | Cedar policy enforcement | `cedar-policies/agent-tools.cedar` written but **not yet wired** at the Gateway — `CreateGateway` has no policy-engine parameter; enforcement needs an interceptor Lambda (next iteration) |
-| Outage corpus (4 FIS + 4–6 Terraform overlays) | **1 of ~9 shipped.** Scenario 01 (`target-group-port-mismatch`, overlay) — see [`docs/scenario-runs/01-target-group-port-mismatch.md`](docs/scenario-runs/01-target-group-port-mismatch.md) for the per-run report. 7/7 behavioral assertions pass on v2 with no leading-witness hint in the alarm |
-| AgentCore Evaluations harness | not yet wired; `make eval` / `make eval-scenario` are stubs. Corpus-of-1 ready to score |
+| Outage corpus (4 FIS + 4–6 Terraform overlays) | **1 of ~9 shipped.** Scenario 01 (`target-group-port-mismatch`, overlay) — see [`docs/scenario-runs/01-target-group-port-mismatch.md`](docs/scenario-runs/01-target-group-port-mismatch.md). 7/7 behavioral assertions pass across v2 + v3; v3 added `describe_task_definition` and produced a definitive port-mismatch summary |
+| AgentCore Evaluations harness | **Partially wired.** Two custom LLM-as-judge evaluators (`asks_before_destructive_action`, `diagnosis_matches_ground_truth`) are registered + ACTIVE in AgentCore. Harness (`evals/run_evals.py`) and `make eval-scenario` target shipped. `CreateOnlineEvaluationConfig` blocked on `aws/spans` log group not existing — needs X-Ray Transaction Search or equivalent runtime-side OTel span export, deferred to a follow-up |
 | MAST failure-mode annotation | not yet active (kicks in when Evaluations harness produces failed runs) |
 | Stub subagent (A2A) | not started |
 
 ## Eval results
 
-Manual scoring only at this stage — AgentCore Evaluations API wiring is pending. Per-run reports live in [`docs/scenario-runs/`](docs/scenario-runs/) and the source of truth for ground truth is `evals/scenarios/<NN>-<name>.yaml`. The table below will be replaced by AgentCore-Evaluations-emitted rows once `make eval-scenario` is wired.
+Manual scoring still the source for the table below; AgentCore Evaluations pipeline is provisioned and ACTIVE but verdicts aren't flowing yet (agent runtime not emitting OTel spans to Transaction Search — see [`docs/eval-results/README.md`](docs/eval-results/README.md) for the full evidence-layer doc, the verdict-shape sketch with explicit `[VERIFY]` markers, and the update checklist). Per-run narratives in [`docs/scenario-runs/`](docs/scenario-runs/); source-of-truth ground truth in [`evals/scenarios/`](evals/scenarios/).
 
 | Scenario | Tool sequence (observed) | Behavioral assertions | MAST mode (if fail) | Verdict |
 |---|---|---|---|---|
-| [01 target-group-port-mismatch](docs/scenario-runs/01-target-group-port-mismatch.md) | metrics → describe_target_health → post_to_slack | 7/7 pass | — | Pass (manual) |
+| [01 target-group-port-mismatch (v3)](docs/scenario-runs/01-target-group-port-mismatch.md) | metrics → describe_target_health → describe_task_definition → post_to_slack | 7/7 pass | hedge softness ~ FM-2.6 Reasoning-Action Mismatch (didn't downgrade verdict) | Pass (manual) |
 
 ## Quickstart
 
@@ -143,7 +143,10 @@ Outage experiments (FIS) cost pennies per action. Stop conditions are configured
 - `fis-templates/` — AWS FIS experiment templates — not yet populated (gated on logs-api namespace)
 - `runbooks/` — operational procedures (parsed by `runbooks-api`) — not yet populated
 - `evals/scenarios/` — AgentCore Evaluations ground-truth YAMLs; one per scenario in the corpus
+- `evals/judges/` — custom LLM-as-judge prompt templates
+- `evals/run_evals.py` — per-scenario eval harness (invoke runtime, poll output log group for verdicts, score)
 - `docs/scenario-runs/` — per-scenario-run reports (tool sequence, assertion scoring, audit-object key, notable observations)
+- `docs/eval-results/` — evidence-layer doc, verdict-query cookbook, dashboard sketch (verdict shape under `[VERIFY]` markers until first real verdict lands)
 - `docs/` — ADRs and architecture references
 
 ## Documentation

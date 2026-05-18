@@ -155,3 +155,27 @@ output "agentcore_issuer_parameter" {
   description = "SSM Parameter Store name where provision_agentcore.py writes the AgentCore Identity issuer URL. The MCP task pulls this via the `secrets` block."
   value       = aws_ssm_parameter.agentcore_issuer.name
 }
+
+# ---------------------------------------------------------------------------
+# AgentCore Evaluations — output log group + execution role
+# ---------------------------------------------------------------------------
+
+output "eval_execution_role_arn" {
+  description = "IAM role AgentCore Evaluations assumes to read runtime traces and write verdicts"
+  value       = aws_iam_role.eval_execution.arn
+}
+
+output "eval_config_id_parameter" {
+  description = "SSM Parameter Store name where the eval provisioner writes the OnlineEvaluationConfig id"
+  value       = aws_ssm_parameter.eval_config_id.name
+}
+
+output "eval_output_log_group_parameter" {
+  description = "SSM Parameter Store name where the eval provisioner writes the auto-provisioned output log group"
+  value       = aws_ssm_parameter.eval_output_log_group.name
+}
+
+output "agent_runtime_log_group_glob" {
+  description = "CloudWatch log group glob the eval data source attaches to (AgentCore Runtime traces). Hardcoded to match scripts/provision_agentcore.py:NAME_PREFIX, which is the source of truth for the runtime name."
+  value       = "/aws/bedrock-agentcore/runtimes/prod_triage_runtime-*-DEFAULT"
+}
