@@ -6,6 +6,18 @@
 > those need to be replaced with the empirically-observed JSON shape once
 > the first verdict flows through. See the bottom of this file for the
 > full update checklist.
+>
+> **Same-day amendment:** an earlier pass of this doc was written assuming
+> AgentCore Evaluations is online-only and treated `OnlineEvaluationConfig`
+> + the auto-provisioned output log group as the canonical store. A late
+> probe surfaced `bedrock-agentcore.Evaluate` — a synchronous on-demand
+> primitive that maps directly to Triage's regression-test use case.
+> **On-demand is the primary mode for this project.** Online is retained
+> as a deferred future for production sampling. The four-layer evidence
+> system below still holds, but in practice Layer 4 will be populated by
+> per-scenario `Evaluate` calls (synchronous, in-process), not by the
+> async online pipeline. The online pipeline still works as written for
+> the production-sampling story.
 
 ## The four-layer evidence system
 
@@ -18,12 +30,16 @@ no single layer subsumes the others.
 | **1. Per-run narrative** | Human-written scenario writeup: setup, observed tool sequence, diagnosis quote, behavioral-assertion scoring, notable observations | `docs/scenario-runs/<NN>-<slug>.md` | Reviewers; future-you reading the journal | Forever (git) |
 | **2. Latest verdict per scenario** | One-row-per-scenario table on the repo's front page | `README.md` "Eval results" section | First-time visitor browsing the repo | Forever (git); lossy — only the latest |
 | **3. Agent output (per-session)** | Every Slack post, structured: severity, summary, diagnosis, metrics_observed, recommended_action, tool_id, principal, timestamp | S3 `s3://dev-triage-audit-042729137214/events/YYYY/MM/DD/<uuid>.json` | Audit / replay / pulling agent text for re-scoring | Object Lock; effectively permanent |
-| **4. Eval verdicts (per-session × per-evaluator)** | One verdict event per (evaluator, session): score, label, rationale, evaluator id, timestamp | CloudWatch Logs `/aws/bedrock-agentcore/evaluations/results/triage_online_eval-nMX5qn6iqI` | Programmatic eval; regression tracking; trend dashboards | 30 days default; extend if needed |
+| **4a. Eval verdicts — on-demand (primary)** | `evaluationResults` returned synchronously from per-scenario `bedrock-agentcore.Evaluate` calls. One result row per (evaluator, session). | Captured by `evals/run_evals.py` per run; committed into `docs/scenario-runs/*` and into a per-run JSON under `docs/eval-results/runs/` (TBD). | Programmatic regression scoring; CI gate | Forever (git) |
+| **4b. Eval verdicts — online (deferred)** | One verdict event per (evaluator, session) written by the `OnlineEvaluationConfig` pipeline | CloudWatch Logs `/aws/bedrock-agentcore/evaluations/results/triage_online_eval-nMX5qn6iqI` | Production-sampling quality monitoring | 30 days default |
 
-Layer 4 is **the systematic store**. Layers 1–3 each carry partial
-information that maps to layer 4 by session id. Layer 3 + Layer 4
-joined on session id give you (agent's diagnosis, every evaluator's
-score for it) — that's the full row of the eval table for any session.
+Layer 4a is **the systematic store for the regression-test pattern** —
+each `make eval-scenario` call produces one row, joined to Layer 3 by
+session id. Layer 4b (online) is the systematic store for the
+production-sampling pattern when Triage runs as a live service.
+Layers 1–3 each carry partial information that maps to Layer 4 by
+session id; Layer 3 + Layer 4 joined gives (agent's diagnosis, every
+evaluator's score for it) — the full eval-table row.
 
 ## Verdict event JSON shape `[VERIFY]`
 
