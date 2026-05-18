@@ -52,14 +52,14 @@ Decision doc with full architectural reasoning: [`docs/architecture-references/t
 | AgentCore Gateway | Created with `authorizerType=AWS_IAM` — callers sign with SigV4. DYNAMIC tool listing — new MCP tools propagate without re-provisioning the Gateway |
 | Slack | Bot token in Secrets Manager; alarm → Lambda → Runtime → MCP → Slack path verified end-to-end on real outages, posts land in `#all-triage` |
 | Cedar policy enforcement | `cedar-policies/agent-tools.cedar` written but **not yet wired** at the Gateway — `CreateGateway` has no policy-engine parameter; enforcement needs an interceptor Lambda (next iteration) |
-| Outage corpus (4 FIS + 4–6 Terraform overlays) | **1 of ~9 shipped.** Scenario 01 (`target-group-port-mismatch`, overlay) — see [`docs/scenario-runs/01-target-group-port-mismatch.md`](docs/scenario-runs/01-target-group-port-mismatch.md). 7/7 behavioral assertions pass across v2 + v3; v3 added `describe_task_definition` and produced a definitive port-mismatch summary |
-| AgentCore Evaluations harness | **Partially wired.** Two custom LLM-as-judge evaluators (`asks_before_destructive_action`, `diagnosis_matches_ground_truth`) are registered + ACTIVE in AgentCore. Harness (`evals/run_evals.py`) and `make eval-scenario` target shipped. `CreateOnlineEvaluationConfig` blocked on `aws/spans` log group not existing — needs X-Ray Transaction Search or equivalent runtime-side OTel span export, deferred to a follow-up |
-| MAST failure-mode annotation | not yet active (kicks in when Evaluations harness produces failed runs) |
+| Outage corpus (4 FIS + 4–6 Terraform overlays) | **2 of ~9 shipped.** Scenario 01 (`target-group-port-mismatch`, overlay): 7/7 assertions pass across v2/v3 — definitive port-mismatch diagnosis. Scenario 02 (`missing-env-var`, overlay): v1 **failed** 2/7 — agent skipped `describe_task_definition` and produced a generic "app crashed" diagnosis. The eval corpus is doing its job — predicted MAST FM-3.3 and surfaced it on first run. Reports under [`docs/scenario-runs/`](docs/scenario-runs/) |
+| AgentCore Evaluations harness | **Two paths, both partial.** On-demand `bedrock-agentcore.Evaluate` (synchronous, takes inline spans + reference inputs — the right primary mode for regression scoring) is designed but not yet wired; constraint is that AgentCore only accepts spans from `strands.telemetry.tracer` / `*.langchain` scopes, so the agent's OTel emission needs a scope spoof first. Online `CreateOnlineEvaluationConfig` is provisioned + ACTIVE but produces no verdicts because `aws/spans` is empty (runtime not emitting OTel→Transaction Search yet). Two custom LLM-as-judge evaluators (`asks_before_destructive_action`, `diagnosis_matches_ground_truth`) are registered + ACTIVE in either path. Harness `evals/run_evals.py` + `make eval-scenario` wired |
+| MAST failure-mode annotation | **Active.** First annotated failure: scenario 02 v1 → FM-3.3 Incorrect Verification (predicted in the YAML's `mast_baseline_hypothesis`, verified empirically). See the scenario 02 run report |
 | Stub subagent (A2A) | not started |
 
 ## Eval results
 
-Manual scoring still the source for the table below; AgentCore Evaluations pipeline is provisioned and ACTIVE but verdicts aren't flowing yet (agent runtime not emitting OTel spans to Transaction Search — see [`docs/eval-results/README.md`](docs/eval-results/README.md) for the full evidence-layer doc, the verdict-shape sketch with explicit `[VERIFY]` markers, and the update checklist). Per-run narratives in [`docs/scenario-runs/`](docs/scenario-runs/); source-of-truth ground truth in [`evals/scenarios/`](evals/scenarios/).
+Manual scoring still the source for the table below. The AgentCore Evaluations on-demand path (synchronous `bedrock-agentcore.Evaluate`) is the design target — it takes inline spans + reference inputs from the YAML and returns scored results in seconds, no async pipeline required. Implementation is the next session's first task (the agent's OTel emission needs a Strands-scope spoof so AgentCore accepts the spans). Online path is also provisioned but secondary — for production sampling, not regression testing. Full evidence-layer doc + verdict-shape sketch (with `[VERIFY]` markers) in [`docs/eval-results/README.md`](docs/eval-results/README.md). Per-run narratives: [`docs/scenario-runs/`](docs/scenario-runs/). Ground truth: [`evals/scenarios/`](evals/scenarios/).
 
 | Scenario | Tool sequence (observed) | Behavioral assertions | MAST mode (if fail) | Verdict |
 |---|---|---|---|---|
@@ -70,7 +70,7 @@ Manual scoring still the source for the table below; AgentCore Evaluations pipel
 
 ### Prerequisites
 
-- AWS account with Bedrock model access for `anthropic.claude-sonnet-4-6-v1:0` in `us-east-1` (enable in Bedrock Console → Model Access)
+- AWS account with Bedrock model access for `anthropic.claude-sonnet-4-5-20250929-v1:0` in `us-east-1` (the agent's foundation model — enable in Bedrock Console → Model Access). The custom LLM-as-judge evaluators use Haiku 4.5 (`anthropic.claude-haiku-4-5-20251001-v1:0`); enable that too if running the eval pipeline
 - A domain you control at a registrar that lets you delegate NS records (Route 53 registrar is simplest — auto-delegation)
 - Slack app with `chat:write` bot token (for the demo end-to-end)
 - Python 3.12+ (managed via `uv`)
@@ -118,8 +118,16 @@ aws cloudwatch set-alarm-state --alarm-name dev-triage-demo-alarm \
 ### Run the eval suite
 
 ```bash
-make eval                              # full corpus
-make eval-scenario SCENARIO=az-slowdown  # single scenario
+# Provision the custom evaluators + online config (idempotent; only needed
+# the first time, or after editing evals/judges/*.md):
+make provision-evaluators
+
+# Single scenario (overlay must be applied separately — see scenario READMEs):
+make eval-scenario SCENARIO=01-target-group-port-mismatch
+make eval-scenario SCENARIO=02-missing-env-var
+
+# Full corpus run (TODO — currently delegates to per-scenario):
+make eval
 ```
 
 ### Destroy when done (this is real infrastructure that costs money)
@@ -137,9 +145,10 @@ Outage experiments (FIS) cost pennies per action. Stop conditions are configured
 ## Project layout
 
 - `src/triage/` — Python code (MCP server, agent runtime, shared utilities)
-- `scripts/provision_agentcore.py` — out-of-band creation of Gateway / Runtime / Workload Identity
+- `scripts/provision_agentcore.py` — out-of-band creation of Gateway / Runtime / Workload Identity (idempotent; rerun refreshes the runtime image)
+- `scripts/provision_evaluators.py` — registers the custom LLM-as-judge evaluators + the OnlineEvaluationConfig (idempotent)
 - `terraform/stack/` — production AWS infrastructure
-- `terraform/overlays/` — outage scenarios (misconfiguration overlays); scenario 01 lives here, others TBD
+- `terraform/overlays/` — outage scenarios (misconfiguration overlays). Two live: `target-group-port-mismatch/`, `missing-env-var/`. More TBD
 - `cedar-policies/` — Cedar policy files (Gateway interceptor wiring deferred)
 - `fis-templates/` — AWS FIS experiment templates — not yet populated (gated on logs-api namespace)
 - `runbooks/` — operational procedures (parsed by `runbooks-api`) — not yet populated
