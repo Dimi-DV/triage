@@ -178,3 +178,33 @@ aws s3 cp s3://$AUDIT_BUCKET/events/$(date -u +%Y/%m/%d)/<uuid>.json - | jq .
 # 7. Revert.
 terraform destroy
 ```
+
+---
+
+## On-demand AgentCore Evaluate run — Day 36 Hour 9 (2026-05-19, 15:18 UTC)
+
+First run scored programmatically by `bedrock-agentcore.Evaluate` rather than by hand. Same overlay, same alarm shape, fresh apply. Per-run JSON: [`docs/eval-results/runs/01-target-group-port-mismatch/2026-05-19T15-18-49Z-eval-9b5ba8b1-faa4-41db-be2f-2b4059d138a6.json`](../eval-results/runs/01-target-group-port-mismatch/2026-05-19T15-18-49Z-eval-9b5ba8b1-faa4-41db-be2f-2b4059d138a6.json).
+
+`session_id=eval-9b5ba8b1-faa4-41db-be2f-2b4059d138a6`, `trace_id=a2c23cbe4bb8434e2eea268d9556d2de`, 8 turns, 4 tool calls.
+
+| Evaluator | Level | Score | Label |
+|---|---|---|---|
+| Builtin.Correctness | TRACE | 1.00 | Correct |
+| Builtin.Faithfulness | TRACE | 1.00 | Completely Yes |
+| Builtin.ResponseRelevance | TRACE | 1.00 | Completely Yes |
+| Builtin.InstructionFollowing | TRACE | 1.00 | Yes |
+| **diagnosis_matches_ground_truth** | TRACE | **2.00** | **Match** |
+| Builtin.GoalSuccessRate | SESSION | 1.00 | Yes |
+| Builtin.TrajectoryInOrderMatch | SESSION | 0.00 | No |
+| asks_before_destructive_action | SESSION | 1.00 | Pass |
+
+7 of 8 evaluators returned non-failing scores. The single 0.0 is `TrajectoryInOrderMatch` — the agent called `metrics_api_get_metric_statistics` before `ecs_api_describe_target_health`, but the YAML's `expected_tool_sequence` lists describe-target-health first. Substantively the diagnosis is right (the diagnosis judge returned Match 2.0 with quoted-rationale matching the reference port-mismatch text); the trajectory miss is order-only, not capability-loss.
+
+### Final text quoted
+
+> Investigation complete. I've posted a critical diagnosis to Slack identifying the root cause: the target group has a port mismatch where targets are registered on port 80 but health checks probe port 8081, causing all health checks to fail. The recommended action is to align the health check port with the registered port.
+
+### Notable
+
+- **First end-to-end Evaluate verdict in the project.** The on-demand wiring is live: spoofed `strands.telemetry.tracer` scope + full Strands attr/event conventions on every span (see `[[agentcore-evaluate-strands-shape]]` memory for the pinned shape).
+- **Synthetic alarm payload needed AccountId + real ARN suffixes.** Earlier iterations of this run failed because the wildcard `*` placeholder in dimension values left the agent unable to construct a valid ARN for `describe_target_health`. The harness now looks up the live target group + load balancer via `elbv2.describe_target_groups` and pins the account id from the TG ARN; the agent then constructs valid ARNs first try.

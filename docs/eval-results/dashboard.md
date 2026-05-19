@@ -1,9 +1,12 @@
 # Eval dashboard sketch
 
-> **Status (2026-05-18):** A pre-implementation sketch of the CloudWatch
-> dashboard that should sit on top of the eval verdict log group. Pin
-> the actual widget configs once the verdict shape is real; see the
-> update checklist in `docs/eval-results/README.md`.
+> **Scope:** for the **online** verdict pipeline only. The on-demand path
+> (primary for regression scoring) is git-committed JSON under
+> `docs/eval-results/runs/` — graph it from there, not from CloudWatch.
+>
+> **Status (2026-05-19):** Pre-implementation sketch. Pin actual widget
+> configs once the online pipeline produces verdicts — gated on
+> `aws/spans` emission (see `[[aws-spans-observability-gap]]` memory).
 
 Goal: a single dashboard that answers "is the agent regressing?" at a
 glance, with click-through to per-session detail.

@@ -33,7 +33,13 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from triage.shared.otel import init_tracing, tool_span
+from triage.shared.evaluate_spans import to_evaluate_payload
+from triage.shared.otel import (
+    flush_and_collect_spans,
+    init_tracing,
+    install_runtime_exporter,
+    tool_span,
+)
 
 log = logging.getLogger(__name__)
 
@@ -41,6 +47,16 @@ _MODEL_ID_ENV = "BEDROCK_MODEL_ID"
 _GATEWAY_URL_ENV = "TRIAGE_GATEWAY_URL"
 _GATEWAY_SERVICE = "bedrock-agentcore"
 _MAX_TURNS = 6
+
+# Common attributes carried on every span so AgentCore's Evaluate adapter
+# recognizes them as a single Strands-instrumented session. See
+# feedback_agentcore_evaluate_strands_shape for the full pinned shape.
+_GEN_AI_SYSTEM = {
+    "gen_ai.system": "strands-agents",
+    "gen_ai.provider.name": "strands-agents",
+}
+_AGENT_NAME = "triage-agent"
+_SESSION_ID_HEADER = "x-amzn-bedrock-agentcore-runtime-session-id"
 
 
 def _load_system_prompt() -> str:
@@ -186,82 +202,233 @@ def _bedrock_tool_config(tools: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _run_loop(alarm_payload: dict[str, Any]) -> dict[str, Any]:
+def _session_common(session_id: str) -> dict[str, Any]:
+    return {**_GEN_AI_SYSTEM, "session.id": session_id}
+
+
+def _run_loop(alarm_payload: dict[str, Any], session_id: str) -> dict[str, Any]:
     bedrock = boto3.client("bedrock-runtime")
     tools = _list_tools()
     tool_config = _bedrock_tool_config(tools)
+    model_id = os.environ[_MODEL_ID_ENV]
 
+    user_query = json.dumps(alarm_payload, indent=2)
     messages: list[dict[str, Any]] = [
         {
             "role": "user",
             "content": [
                 {"text": "Incoming alarm payload:"},
-                {"text": json.dumps(alarm_payload, indent=2)},
+                {"text": user_query},
             ],
         }
     ]
+    common = _session_common(session_id)
 
     final_text = ""
-    for turn in range(_MAX_TURNS):
-        with tool_span("triage.agent.converse", turn=turn):
-            response = bedrock.converse(
-                modelId=os.environ[_MODEL_ID_ENV],
-                messages=messages,
-                system=[{"text": SYSTEM_PROMPT}],
-                toolConfig=tool_config,
-                inferenceConfig={"maxTokens": 2048, "temperature": 0.0},
-            )
+    # Clear any pre-existing buffered spans from this long-lived container so
+    # we never bleed spans from a prior session into this run's evaluation.
+    flush_and_collect_spans()
 
-        output = response["output"]["message"]
-        messages.append({"role": output["role"], "content": output["content"]})
-
-        stop_reason = response.get("stopReason")
-        if stop_reason != "tool_use":
-            final_text = "".join(
-                block.get("text", "") for block in output["content"] if "text" in block
-            )
-            break
-
-        # Execute every tool_use block in this assistant turn, append a single
-        # user turn with the matching tool_result blocks.
-        tool_results: list[dict[str, Any]] = []
-        for block in output["content"]:
-            if "toolUse" not in block:
-                continue
-            tu = block["toolUse"]
-            log.info("Agent calling tool %s", tu["name"])
-            with tool_span("triage.agent.tool_call", tool=tu["name"]):
-                try:
-                    result = _call_tool(tu["name"], tu.get("input", {}))
-                    tool_results.append(
-                        {
-                            "toolResult": {
-                                "toolUseId": tu["toolUseId"],
-                                "content": [{"json": result}],
-                            }
-                        }
-                    )
-                except Exception as exc:
-                    log.exception("Tool %s failed", tu["name"])
-                    tool_results.append(
-                        {
-                            "toolResult": {
-                                "toolUseId": tu["toolUseId"],
-                                "status": "error",
-                                "content": [{"text": str(exc)}],
-                            }
-                        }
-                    )
-        messages.append({"role": "user", "content": tool_results})
-    else:
-        # Loop exhaustion is a real failure: Slack post never happened.
-        # Raise so the /invocations handler returns 500 and SNS/DLQ surface it.
-        raise RuntimeError(
-            f"Agent loop exhausted _MAX_TURNS={_MAX_TURNS} without completing; "
-            "Slack post was not made."
+    with tool_span(
+        f"invoke_agent {_AGENT_NAME}",
+        **common,
+        **{
+            "gen_ai.operation.name": "invoke_agent",
+            "gen_ai.agent.name": _AGENT_NAME,
+            "gen_ai.request.model": model_id,
+            "gen_ai.prompt": user_query,
+            "gen_ai.user.message": user_query,
+            "user_query": user_query,
+        },
+    ) as agent_span:
+        agent_span.add_event(
+            "gen_ai.user.message",
+            attributes={
+                "content": json.dumps([{"text": user_query}]),
+                "role": "user",
+            },
         )
 
-    return {"final_text": final_text, "turns": len(messages)}
+        for _turn in range(_MAX_TURNS):
+            with tool_span(
+                "chat",
+                **common,
+                **{
+                    "gen_ai.operation.name": "chat",
+                    "gen_ai.request.model": model_id,
+                },
+            ) as chat_span:
+                response = bedrock.converse(
+                    modelId=model_id,
+                    messages=messages,
+                    system=[{"text": SYSTEM_PROMPT}],
+                    toolConfig=tool_config,
+                    inferenceConfig={"maxTokens": 2048, "temperature": 0.0},
+                )
+                chat_span.add_event(
+                    "gen_ai.choice",
+                    attributes={
+                        "message": json.dumps(
+                            response.get("output", {}).get("message", {}).get("content", [])
+                        ),
+                        "finish_reason": str(response.get("stopReason", "")),
+                    },
+                )
+
+            output = response["output"]["message"]
+            messages.append({"role": output["role"], "content": output["content"]})
+
+            stop_reason = response.get("stopReason")
+            if stop_reason != "tool_use":
+                final_text = "".join(
+                    block.get("text", "") for block in output["content"] if "text" in block
+                )
+                break
+
+            # Execute every tool_use block in this assistant turn, append a
+            # single user turn with the matching tool_result blocks.
+            tool_results: list[dict[str, Any]] = []
+            for block in output["content"]:
+                if "toolUse" not in block:
+                    continue
+                tu = block["toolUse"]
+                # Routing uses the Gateway-prefixed name; spans report the
+                # canonical bare MCP tool ID so trajectory comparisons
+                # against the scenario YAML match.
+                raw_tool_name = tu["name"]
+                tool_name = raw_tool_name.split("___", 1)[-1]
+                tool_use_id = tu["toolUseId"]
+                tool_args = tu.get("input", {})
+                tool_args_json = json.dumps(tool_args)
+                log.info("Agent calling tool %s", tool_name)
+                with tool_span(
+                    f"execute_tool {tool_name}",
+                    **common,
+                    **{
+                        "gen_ai.operation.name": "execute_tool",
+                        "gen_ai.tool.name": tool_name,
+                        "gen_ai.tool.call.id": tool_use_id,
+                        "gen_ai.tool.arguments": tool_args_json,
+                        "gen_ai.tool.call.arguments": tool_args_json,
+                        "tool_parameters": tool_args_json,
+                    },
+                ) as tool_span_:
+                    tool_span_.add_event(
+                        "gen_ai.client.inference.operation.details",
+                        attributes={
+                            "gen_ai.input.messages": json.dumps(
+                                [
+                                    {
+                                        "role": "tool",
+                                        "parts": [
+                                            {
+                                                "type": "tool_call",
+                                                "name": tool_name,
+                                                "id": tool_use_id,
+                                                "arguments": tool_args,
+                                            }
+                                        ],
+                                    }
+                                ]
+                            ),
+                        },
+                    )
+                    try:
+                        result = _call_tool(raw_tool_name, tool_args)
+                        result_text = json.dumps(result)[:2000]
+                        tool_status = "success"
+                        tool_results.append(
+                            {
+                                "toolResult": {
+                                    "toolUseId": tool_use_id,
+                                    "content": [{"json": result}],
+                                }
+                            }
+                        )
+                    except Exception as exc:
+                        log.exception("Tool %s failed", tool_name)
+                        result_text = str(exc)
+                        tool_status = "error"
+                        tool_results.append(
+                            {
+                                "toolResult": {
+                                    "toolUseId": tool_use_id,
+                                    "status": "error",
+                                    "content": [{"text": str(exc)}],
+                                }
+                            }
+                        )
+                    tool_span_.set_attribute("gen_ai.tool.status", tool_status)
+                    tool_span_.add_event(
+                        "gen_ai.client.inference.operation.details",
+                        attributes={
+                            "gen_ai.output.messages": json.dumps(
+                                [
+                                    {
+                                        "role": "tool",
+                                        "parts": [
+                                            {
+                                                "type": "tool_call_response",
+                                                "id": tool_use_id,
+                                                "response": [{"text": result_text}],
+                                            }
+                                        ],
+                                    }
+                                ]
+                            ),
+                        },
+                    )
+                    tool_span_.add_event(
+                        "gen_ai.tool.message",
+                        attributes={
+                            "role": "tool",
+                            "content": tool_args_json,
+                            "id": tool_use_id,
+                        },
+                    )
+                    tool_span_.add_event(
+                        "gen_ai.choice",
+                        attributes={
+                            "message": json.dumps([{"text": result_text}]),
+                            "id": tool_use_id,
+                        },
+                    )
+            messages.append({"role": "user", "content": tool_results})
+        else:
+            # Loop exhaustion is a real failure: Slack post never happened.
+            raise RuntimeError(
+                f"Agent loop exhausted _MAX_TURNS={_MAX_TURNS} without completing; "
+                "Slack post was not made."
+            )
+
+        agent_span.add_event(
+            "gen_ai.client.inference.operation.details",
+            attributes={
+                "gen_ai.output.messages": json.dumps(
+                    [
+                        {
+                            "role": "assistant",
+                            "parts": [{"type": "text", "content": final_text}],
+                        }
+                    ]
+                ),
+            },
+        )
+        agent_span.add_event(
+            "gen_ai.choice",
+            attributes={
+                "message": final_text,
+                "finish_reason": "end_turn",
+            },
+        )
+
+    spans = to_evaluate_payload(flush_and_collect_spans())
+    return {
+        "final_text": final_text,
+        "turns": len(messages),
+        "session_id": session_id,
+        "spans": spans,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -281,10 +448,14 @@ async def invocations(request: Request) -> JSONResponse:
         return JSONResponse({"error": "invalid_json"}, status_code=400)
 
     alarm = payload.get("alarm", payload)
-    log.info("Agent received alarm %s", alarm.get("AlarmName", "(unknown)"))
+    # AgentCore Runtime injects the runtimeSessionId as a header on every
+    # /invocations call. We carry it onto every OTel span so on-demand
+    # Evaluate recognizes the spans as one Strands session.
+    session_id = request.headers.get(_SESSION_ID_HEADER) or payload.get("session_id") or "anonymous"
+    log.info("Agent received alarm %s session=%s", alarm.get("AlarmName", "(unknown)"), session_id)
 
     try:
-        result = _run_loop(alarm)
+        result = _run_loop(alarm, session_id)
     except Exception as exc:
         log.exception("Agent loop failed")
         return JSONResponse({"error": "agent_failed", "detail": str(exc)}, status_code=500)
@@ -300,7 +471,10 @@ app = Starlette(
 
 
 def main() -> None:
-    init_tracing("triage-agent")
+    # AgentCore on-demand Evaluate only accepts spans from one of three
+    # framework scopes; "strands.telemetry.tracer" is the one we mirror.
+    init_tracing("triage-agent", tracer_name="strands.telemetry.tracer")
+    install_runtime_exporter()
     port = int(os.environ.get("PORT", "8080"))
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")  # noqa: S104  (container)
 

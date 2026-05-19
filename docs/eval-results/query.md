@@ -1,9 +1,15 @@
 # Eval verdict queries (CloudWatch Logs Insights)
 
-> **Status (2026-05-18):** Field names below are `[VERIFY]` placeholders.
-> Replace the field references with the real shape once the first
-> verdict lands. See `docs/eval-results/README.md` for the update
-> checklist.
+> **Scope:** these queries are for the **online** `OnlineEvaluationConfig`
+> pipeline (production sampling). The **on-demand** path
+> (`bedrock-agentcore.Evaluate`, primary for regression testing) writes
+> per-run JSONs under `docs/eval-results/runs/` — no log-group queries
+> needed for that. See [README.md](README.md) for the on-demand shape.
+>
+> **Status (2026-05-19):** Field names below are still `[VERIFY]` —
+> they're inferred from boto3 and AWS docs and will be pinned the first
+> time the online pipeline produces verdicts. That's gated on `aws/spans`
+> emission (see `[[aws-spans-observability-gap]]` memory).
 
 All queries target the eval output log group:
 `/aws/bedrock-agentcore/evaluations/results/triage_online_eval-nMX5qn6iqI`

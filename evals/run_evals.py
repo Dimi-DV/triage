@@ -1,31 +1,24 @@
 #!/usr/bin/env python3
-"""Per-scenario eval harness — corpus-of-N orchestration around AgentCore Evaluations.
+"""Per-scenario eval harness — on-demand AgentCore Evaluate orchestration.
 
-Today this harness uses the **online** path (poll the OnlineEvaluationConfig
-output log group for verdicts referencing the session id). That works once
-the runtime is emitting OTel spans to `aws/spans` via X-Ray Transaction
-Search — currently NOT happening, so verdicts time out.
+Each `make eval-scenario` run does this synchronously:
 
-**The primary path is on-demand `bedrock-agentcore.Evaluate`** (synchronous,
-takes inline spans + reference inputs, returns results immediately). The
-control plane has no batch start_evaluation API — the on-demand primitive
-lives on the runtime client. See feedback_agentcore_evaluate_ondemand_path
-memory for the full call shape + constraints. Rewriting this harness to use
-Evaluate is the next session's first task; the registered custom judges
-(asks_before_destructive_action, diagnosis_matches_ground_truth) wire
-directly into that path with their reference-input placeholders.
+  1. Load the scenario YAML for ground truth (reference_answer,
+     behavioral_assertions, expected_tool_sequence).
+  2. Invoke the AgentCore Runtime with a synthetic alarm payload.
+  3. Extract the OTel spans the agent returns inline in its response (the
+     runtime serializes them via `triage.shared.evaluate_spans` into the
+     shape Evaluate expects, with `scope.name="strands.telemetry.tracer"`).
+  4. For each enabled evaluator (5 built-ins + 2 customs), call
+     `bedrock-agentcore.Evaluate` with the spans + reference inputs at the
+     evaluator's level (TRACE vs SESSION).
+  5. Aggregate verdicts, print a per-evaluator table, write a per-run JSON
+     under `docs/eval-results/runs/<scenario>/`, exit non-zero on FAIL.
 
-Current flow:
-
-1. Load scenario YAML for ground truth (reference_answer, behavioral_assertions,
-   expected_tool_sequence).
-2. Invoke the AgentCore Runtime with a synthetic alarm payload matching the
-   scenario. The runtime emits OpenTelemetry traces to its DEFAULT log group.
-3. The OnlineEvaluationConfig (provisioned by scripts/provision_evaluators.py)
-   reads those traces and writes per-evaluator verdicts to a separate output
-   log group (auto-provisioned at create time; discovered via SSM).
-4. Poll the output log group for verdicts referencing this session id.
-5. Aggregate scores; print a per-evaluator table; exit non-zero on FAIL.
+The polling-the-online-log-group path that this file used to run is
+replaced wholesale. The online OnlineEvaluationConfig pipeline still
+exists for production-sampling, but Triage's regression-test pattern
+runs on-demand.
 
 Usage: make eval-scenario SCENARIO=01-target-group-port-mismatch
 """
@@ -33,12 +26,12 @@ Usage: make eval-scenario SCENARIO=01-target-group-port-mismatch
 from __future__ import annotations
 
 import argparse
+import datetime as _dt
 import json
 import logging
 import os
 import pathlib
 import sys
-import time
 import uuid
 from typing import Any
 
@@ -48,10 +41,24 @@ from botocore.exceptions import ClientError
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 SCENARIOS_DIR = REPO_ROOT / "evals" / "scenarios"
+RUNS_DIR = REPO_ROOT / "docs" / "eval-results" / "runs"
 DEFAULT_REGION = "us-east-1"
 DEFAULT_RUNTIME_ARN_PARAM = "/dev/triage/agentcore-runtime-arn"
-DEFAULT_EVAL_OUTPUT_LOG_GROUP_PARAM = "/dev/triage/eval-output-log-group"
-DEFAULT_POLL_TIMEOUT_S = 600  # 10 minutes — async eval pipeline can be slow
+
+# Evaluators to run per scenario. Mixed by level:
+#   TRACE   — need (sessionId, traceId), can use {expectedResponse}.
+#   SESSION — need (sessionId), can use {assertions} and {expectedTrajectory}.
+# SPAN-level is not supported by the Evaluate API.
+EVALUATORS: list[tuple[str, str]] = [
+    ("Builtin.Correctness", "TRACE"),
+    ("Builtin.Faithfulness", "TRACE"),
+    ("Builtin.ResponseRelevance", "TRACE"),
+    ("Builtin.InstructionFollowing", "TRACE"),
+    ("diagnosis_matches_ground_truth-K6N4S4FyUs", "TRACE"),
+    ("Builtin.GoalSuccessRate", "SESSION"),
+    ("Builtin.TrajectoryInOrderMatch", "SESSION"),
+    ("asks_before_destructive_action-gg2q6dArgF", "SESSION"),
+]
 
 log = logging.getLogger("run_evals")
 
@@ -79,16 +86,33 @@ _UNHEALTHY_HOST_ALARM_REASON = (
 )
 
 
-def _unhealthy_host_payload(alarm_name: str, tg_name: str) -> dict[str, Any]:
-    """Shape a CloudWatch UnHealthyHostCount alarm payload for an ALB TG.
-
-    Matches what `cloudwatch:set-alarm-state` would fan out via SNS into the
-    alarm-bridge Lambda — the bridge re-shapes that into the runtime invoke
-    payload. Same shape v3 scenario 01 ran against.
+def _resolve_dimension_values(tg_name: str, region: str) -> tuple[str, str, str]:
+    """Look up the live ALB + TG so the alarm dimension carries the real
+    `targetgroup/<name>/<hash>` and `app/<name>/<hash>` strings the agent
+    needs to construct ARNs for describe_target_health. Also return the
+    account id so the synthetic payload can populate `AWSAccountId`
+    (SNS-delivered alarms carry it; without it the agent has to guess and
+    produces invalid ARNs).
     """
+    elbv2 = boto3.client("elbv2", region_name=region)
+    tg = elbv2.describe_target_groups(Names=[tg_name])["TargetGroups"][0]
+    tg_arn = tg["TargetGroupArn"]
+    # arn:aws:elasticloadbalancing:<region>:<acct>:targetgroup/<name>/<hash>
+    arn_parts = tg_arn.split(":")
+    account_id = arn_parts[4]
+    tg_dim = f"targetgroup/{tg_arn.split(':targetgroup/')[-1]}"
+    lb_arn = tg["LoadBalancerArns"][0]
+    lb_dim = lb_arn.split(":loadbalancer/")[-1]
+    return tg_dim, lb_dim, account_id
+
+
+def _unhealthy_host_payload(alarm_name: str, tg_name: str, region: str) -> dict[str, Any]:
+    """Shape a CloudWatch UnHealthyHostCount alarm payload for an ALB TG."""
+    tg_dim, lb_dim, account_id = _resolve_dimension_values(tg_name, region)
     return {
         "alarm": {
             "AlarmName": alarm_name,
+            "AWSAccountId": account_id,
             "NewStateValue": "ALARM",
             "NewStateReason": _UNHEALTHY_HOST_ALARM_REASON,
             "Region": "US East (N. Virginia)",
@@ -103,32 +127,34 @@ def _unhealthy_host_payload(alarm_name: str, tg_name: str) -> dict[str, Any]:
                 "Statistic": "Maximum",
                 "Threshold": 0.0,
                 "Dimensions": [
-                    {"name": "TargetGroup", "value": f"targetgroup/{tg_name}/*"},
-                    {"name": "LoadBalancer", "value": "app/dev-triage-alb/*"},
+                    {"name": "TargetGroup", "value": tg_dim},
+                    {"name": "LoadBalancer", "value": lb_dim},
                 ],
             },
         }
     }
 
 
-# Per-scenario synthetic alarm builders. Add a row here when adding a
-# scenario YAML — keeps the harness honest about which scenarios it can run.
-_SYNTHETIC_ALARMS: dict[str, dict[str, Any]] = {
-    "target-group-port-mismatch": _unhealthy_host_payload(
-        "dev-triage-broken-tg-unhealthy", "dev-triage-broken-tg"
+# (alarm_name, tg_name) per scenario. ARN lookups happen at run time so the
+# harness picks up overlay re-applies that re-mint TG/LB suffixes.
+_SCENARIO_ALARMS: dict[str, tuple[str, str]] = {
+    "target-group-port-mismatch": (
+        "dev-triage-broken-tg-unhealthy",
+        "dev-triage-broken-tg",
     ),
-    "missing-env-var": _unhealthy_host_payload(
-        "dev-triage-broken-env-tg-unhealthy", "dev-triage-broken-env-tg"
+    "missing-env-var": (
+        "dev-triage-broken-env-tg-unhealthy",
+        "dev-triage-broken-env-tg",
     ),
 }
 
 
-def _synthetic_alarm_for(scenario: dict[str, Any]) -> dict[str, Any]:
-    """Build a CloudWatch-shaped alarm payload for the scenario."""
+def _synthetic_alarm_for(scenario: dict[str, Any], region: str) -> dict[str, Any]:
     name = scenario["name"]
-    if name not in _SYNTHETIC_ALARMS:
+    if name not in _SCENARIO_ALARMS:
         raise NotImplementedError(f"No synthetic alarm builder for scenario {name!r}")
-    return _SYNTHETIC_ALARMS[name]
+    alarm_name, tg_name = _SCENARIO_ALARMS[name]
+    return _unhealthy_host_payload(alarm_name, tg_name, region)
 
 
 def _invoke_runtime(
@@ -153,101 +179,165 @@ def _invoke_runtime(
     }
 
 
-def _poll_verdicts(
-    logs: Any,
-    log_group: str,
+def _reference_inputs(
+    level: str,
+    scenario: dict[str, Any],
     session_id: str,
-    timeout: int,
-    invoke_started_ms: int,
+    trace_id: str,
 ) -> list[dict[str, Any]]:
-    """Poll the eval output log group for verdict events referencing this session.
+    """Build the evaluationReferenceInputs payload for one evaluator level."""
+    if level == "TRACE":
+        return [
+            {
+                "context": {"spanContext": {"sessionId": session_id, "traceId": trace_id}},
+                "expectedResponse": {"text": scenario["reference_answer"]},
+            }
+        ]
+    if level == "SESSION":
+        return [
+            {
+                "context": {"spanContext": {"sessionId": session_id}},
+                "assertions": [{"text": a} for a in scenario.get("behavioral_assertions", [])],
+                "expectedTrajectory": {
+                    "toolNames": list(scenario.get("expected_tool_sequence", []))
+                },
+            }
+        ]
+    raise ValueError(f"Unknown evaluator level {level!r}")
 
-    Filter pattern looks for the literal session id anywhere in the event.
-    AgentCore Evaluations writes one event per (evaluator, session) tuple;
-    the exact JSON shape is auto-discovered from the events themselves.
-    Returns the verdict events collected up to `timeout` seconds.
-    """
-    deadline = time.time() + timeout
-    collected: dict[str, dict[str, Any]] = {}
-    next_token: str | None = None
-    last_log = time.time() - 30  # force an immediate progress log
 
-    while time.time() < deadline:
-        kwargs: dict[str, Any] = {
-            "logGroupName": log_group,
-            "startTime": invoke_started_ms,
-            "filterPattern": f'"{session_id}"',
+def _call_evaluate(
+    client: Any,
+    evaluator_id: str,
+    level: str,
+    spans: list[dict[str, Any]],
+    scenario: dict[str, Any],
+    session_id: str,
+    trace_id: str,
+) -> dict[str, Any]:
+    """Call Evaluate once for an evaluator; return one normalized verdict dict."""
+    try:
+        resp = client.evaluate(
+            evaluatorId=evaluator_id,
+            evaluationInput={"sessionSpans": spans},
+            evaluationReferenceInputs=_reference_inputs(level, scenario, session_id, trace_id),
+        )
+    except ClientError as e:
+        return {
+            "evaluator_id": evaluator_id,
+            "level": level,
+            "error": f"ClientError: {e.response.get('Error', {}).get('Code')}",
+            "error_message": str(e),
         }
-        if next_token:
-            kwargs["nextToken"] = next_token
-        try:
-            resp = logs.filter_log_events(**kwargs)
-        except logs.exceptions.ResourceNotFoundException:
-            # Log group not yet created (first run); back off.
-            log.info("Output log group %s not found yet; waiting", log_group)
-            time.sleep(15)
-            continue
-        for ev in resp.get("events", []):
-            try:
-                doc = json.loads(ev["message"])
-            except (json.JSONDecodeError, KeyError):
-                continue
-            key = (
-                doc.get("evaluatorId")
-                or doc.get("evaluator_id")
-                or doc.get("evaluatorName")
-                or ev["eventId"]
-            )
-            collected[key] = doc
 
-        next_token = resp.get("nextToken")
-        if not next_token:
-            if time.time() - last_log > 30:
-                log.info(
-                    "Polling… have %d verdicts so far (%ds elapsed)",
-                    len(collected),
-                    int(time.time() - (deadline - timeout)),
-                )
-                last_log = time.time()
-            time.sleep(15)
+    results = resp.get("evaluationResults") or []
+    if not results:
+        return {
+            "evaluator_id": evaluator_id,
+            "level": level,
+            "error": "EmptyResults",
+            "error_message": "Evaluate returned no evaluationResults",
+        }
+    r = results[0]
+    return {
+        "evaluator_id": evaluator_id,
+        "evaluator_name": r.get("evaluatorName"),
+        "level": level,
+        "score": r.get("value"),
+        "label": r.get("label"),
+        "rationale": r.get("explanation"),
+        "error": r.get("errorCode"),
+        "error_message": r.get("errorMessage"),
+        "ignored_reference_input_fields": r.get("ignoredReferenceInputFields", []),
+    }
 
-    return list(collected.values())
+
+def _write_run_json(
+    scenario_slug: str,
+    scenario: dict[str, Any],
+    session_id: str,
+    trace_id: str,
+    final_text: str,
+    turns: int,
+    verdicts: list[dict[str, Any]],
+    spans: list[dict[str, Any]] | None = None,
+) -> pathlib.Path:
+    """Write a reproducible per-run JSON under docs/eval-results/runs/."""
+    ts = _dt.datetime.now(tz=_dt.UTC).strftime("%Y-%m-%dT%H-%M-%SZ")
+    out_dir = RUNS_DIR / scenario_slug
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{ts}-{session_id}.json"
+    doc = {
+        "scenario": scenario_slug,
+        "scenario_name": scenario.get("name"),
+        "session_id": session_id,
+        "trace_id": trace_id,
+        "timestamp_utc": _dt.datetime.now(tz=_dt.UTC).isoformat(),
+        "final_text": final_text,
+        "turns": turns,
+        "reference_inputs": {
+            "reference_answer": scenario.get("reference_answer"),
+            "behavioral_assertions": scenario.get("behavioral_assertions"),
+            "expected_tool_sequence": scenario.get("expected_tool_sequence"),
+        },
+        "evaluator_verdicts": verdicts,
+    }
+    if spans is not None:
+        # Drop high-volume telemetry-SDK resource attrs from the committed
+        # JSON; the span content (names, tool args, events) is what matters
+        # for replay and auditing.
+        doc["spans"] = spans
+    out_path.write_text(json.dumps(doc, indent=2, default=str))
+    return out_path
+
+
+def _is_gating(evaluator_id: str) -> bool:
+    """Return True if this evaluator's score gates the harness exit code.
+
+    Only the two custom judges gate — they're the scenario's written
+    assertions. AWS built-ins (Correctness, GoalSuccessRate,
+    TrajectoryInOrderMatch, …) are kept in the table for signal but
+    don't fail the run. Specifically TrajectoryInOrderMatch is too strict
+    a gate (any trajectory deviation = 0); using it as a CI gate would
+    fail substantively-correct runs.
+    """
+    return "-" in evaluator_id and not evaluator_id.startswith("Builtin.")
 
 
 def _summarize(verdicts: list[dict[str, Any]], scenario: dict[str, Any]) -> int:
-    """Print a per-evaluator table; return non-zero exit code if any FAIL.
-
-    Verdict shape varies by evaluator type; we project to a common
-    (evaluator, score, label, rationale) row and let the operator interpret.
-    """
-    if not verdicts:
-        log.error("No verdicts collected — eval pipeline did not produce results in the window")
-        return 8
-
+    """Print a per-evaluator table; return non-zero exit if a gating
+    evaluator returns 0 or every evaluator errored."""
     print()
     print(f"=== Eval verdicts for scenario {scenario['name']} ===")
-    print(f"{'Evaluator':<45} {'Score':>8}  Label / Rationale")
+    print(f"{'Evaluator':<48} {'Lvl':<8} {'Score':>6} Gate  Label / Rationale or Error")
     print("-" * 120)
-    failing = 0
-    for v in sorted(
-        verdicts, key=lambda d: str(d.get("evaluatorId") or d.get("evaluatorName") or "")
-    ):
-        eid = v.get("evaluatorId") or v.get("evaluatorName") or "<unknown>"
-        score = v.get("score") or v.get("value") or v.get("result", {}).get("score")
-        label = v.get("label") or v.get("result", {}).get("label") or ""
-        rationale = (
-            v.get("rationale") or v.get("explanation") or v.get("result", {}).get("rationale") or ""
-        )[:60]
+    failing_gate = 0
+    errored = 0
+    for v in verdicts:
+        eid = v["evaluator_id"]
+        level = v["level"]
+        gate_mark = "*" if _is_gating(eid) else " "
+        if v.get("error"):
+            errored += 1
+            msg = (v.get("error_message") or v["error"])[:70]
+            print(f"{eid:<48} {level:<8} {'ERR':>6}  {gate_mark}    [{v['error']}] {msg}")
+            continue
+        score = v.get("score")
+        label = v.get("label") or ""
+        rationale = (v.get("rationale") or "")[:70]
         score_str = f"{score:.2f}" if isinstance(score, (int, float)) else str(score)
-        print(f"{eid!s:<45} {score_str:>8}  {label} {rationale}")
-        if isinstance(score, (int, float)) and score == 0:
-            failing += 1
-
+        print(f"{eid:<48} {level:<8} {score_str:>6}  {gate_mark}    {label}  {rationale}")
+        if _is_gating(eid) and isinstance(score, (int, float)) and score == 0:
+            failing_gate += 1
     print()
-    if failing:
-        log.error("%d evaluator(s) returned a failing score", failing)
+    print(" * = gating evaluator (scenario's written assertions)")
+    if errored and errored == len(verdicts):
+        log.error("Every evaluator errored.")
+        return 8
+    if failing_gate:
+        log.error("%d gating evaluator(s) returned a failing score (0).", failing_gate)
         return 9
-    log.info("All evaluators passed.")
+    log.info("All gating evaluators returned non-failing scores.")
     return 0
 
 
@@ -257,12 +347,7 @@ def main(argv: list[str] | None = None) -> int:
         "--scenario", required=True, help="Scenario slug, e.g. 01-target-group-port-mismatch"
     )
     parser.add_argument("--region", default=os.environ.get("AWS_REGION", DEFAULT_REGION))
-    parser.add_argument("--timeout", type=int, default=DEFAULT_POLL_TIMEOUT_S)
     parser.add_argument("--runtime-arn-param", default=DEFAULT_RUNTIME_ARN_PARAM)
-    parser.add_argument(
-        "--eval-output-log-group-param",
-        default=DEFAULT_EVAL_OUTPUT_LOG_GROUP_PARAM,
-    )
     parser.add_argument("--session-id", default=f"eval-{uuid.uuid4()}")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -273,14 +358,11 @@ def main(argv: list[str] | None = None) -> int:
     ssm = boto3.client("ssm", region_name=args.region)
     try:
         runtime_arn = _ssm_value(ssm, args.runtime_arn_param)
-        output_log_group = _ssm_value(ssm, args.eval_output_log_group_param)
     except (ClientError, RuntimeError) as e:
         log.error("Failed to resolve SSM params: %s", e)
         return 2
-    log.info("runtime_arn=%s output_log_group=%s", runtime_arn, output_log_group)
 
-    payload = _synthetic_alarm_for(scenario)
-    invoke_started_ms = int(time.time() * 1000)
+    payload = _synthetic_alarm_for(scenario, args.region)
     log.info("Invoking runtime session=%s", args.session_id)
     try:
         result = _invoke_runtime(runtime_arn, payload, args.session_id, args.region)
@@ -296,21 +378,39 @@ def main(argv: list[str] | None = None) -> int:
     if not isinstance(body, dict) or not body.get("final_text"):
         log.error("Agent response missing final_text — incomplete loop")
         return 5
+    spans = body.get("spans") or []
+    if not spans:
+        log.error("Agent response has no spans — runtime didn't emit them (rebuild?)")
+        return 6
+    trace_id = spans[0].get("trace_id", "")
     log.info(
-        "Agent returned %d turns, %d chars of final_text",
+        "Agent returned %d turns, %d chars of final_text, %d spans (trace=%s)",
         body.get("turns", 0),
         len(body["final_text"]),
+        len(spans),
+        trace_id,
     )
 
-    log.info("Polling eval output log group for verdicts (timeout %ds)…", args.timeout)
-    logs_client = boto3.client("logs", region_name=args.region)
-    verdicts = _poll_verdicts(
-        logs_client,
-        output_log_group,
+    log.info("Calling Evaluate for %d evaluators…", len(EVALUATORS))
+    eval_client = boto3.client("bedrock-agentcore", region_name=args.region)
+    verdicts: list[dict[str, Any]] = []
+    for eid, level in EVALUATORS:
+        log.info("  → %s (%s)", eid, level)
+        verdicts.append(
+            _call_evaluate(eval_client, eid, level, spans, scenario, result["session_id"], trace_id)
+        )
+
+    out_path = _write_run_json(
+        args.scenario,
+        scenario,
         result["session_id"],
-        args.timeout,
-        invoke_started_ms,
+        trace_id,
+        body["final_text"],
+        body.get("turns", 0),
+        verdicts,
+        spans=spans,
     )
+    log.info("Wrote per-run JSON: %s", out_path.relative_to(REPO_ROOT))
 
     return _summarize(verdicts, scenario)
 

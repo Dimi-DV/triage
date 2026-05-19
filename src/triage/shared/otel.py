@@ -21,7 +21,7 @@ from typing import Any, cast
 
 from opentelemetry import trace
 from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from opentelemetry.sdk.trace.export import (
     BatchSpanProcessor,
     ConsoleSpanExporter,
@@ -29,6 +29,14 @@ from opentelemetry.sdk.trace.export import (
     SpanExporter,
 )
 from opentelemetry.trace import Span, Tracer
+
+# Default tracer scope name. AgentCore's on-demand `Evaluate` API only accepts
+# spans whose scope.name is one of three known frameworks
+# (strands.telemetry.tracer, opentelemetry.instrumentation.langchain,
+# openinference.instrumentation.langchain), so the agent runtime overrides
+# this at init_tracing() time. The MCP server keeps the default.
+_TRACER_NAME: str | None = None
+_RUNTIME_EXPORTER: Any = None
 
 
 def _build_exporter() -> SpanExporter | None:
@@ -50,11 +58,17 @@ def _build_exporter() -> SpanExporter | None:
     raise ValueError(f"Unsupported OTEL_TRACES_EXPORTER={choice!r}")
 
 
-def init_tracing(service_name: str) -> None:
+def init_tracing(service_name: str, tracer_name: str | None = None) -> None:
     """Install a global TracerProvider with a stdio-safe exporter.
+
+    `tracer_name` overrides the OTel scope name returned by `_tracer()`.
+    The agent runtime passes "strands.telemetry.tracer" so AgentCore's
+    on-demand Evaluate accepts its spans; the MCP server leaves it None
+    and keeps the default "triage.mcp_server".
 
     Idempotent: safe to call multiple times in tests.
     """
+    global _TRACER_NAME, _RUNTIME_EXPORTER
     logging.basicConfig(stream=sys.stderr, level=logging.INFO, force=True)
 
     resource = Resource.create({"service.name": service_name})
@@ -65,6 +79,46 @@ def init_tracing(service_name: str) -> None:
         provider.add_span_processor(BatchSpanProcessor(exporter))
 
     trace.set_tracer_provider(provider)
+    _TRACER_NAME = tracer_name
+    # New provider → previously-installed runtime exporter is detached.
+    _RUNTIME_EXPORTER = None
+
+
+def install_runtime_exporter() -> Any:
+    """Attach an InMemorySpanExporter to the active TracerProvider.
+
+    Used by the agent runtime to collect session spans for inline
+    submission to `bedrock-agentcore.Evaluate`. Idempotent — a second call
+    returns the same exporter handle. Must be called after `init_tracing`.
+    """
+    global _RUNTIME_EXPORTER
+    if _RUNTIME_EXPORTER is not None:
+        return _RUNTIME_EXPORTER
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+        InMemorySpanExporter,
+    )
+
+    exporter = InMemorySpanExporter()
+    provider = cast(TracerProvider, trace.get_tracer_provider())
+    provider.add_span_processor(BatchSpanProcessor(exporter))
+    _RUNTIME_EXPORTER = exporter
+    return exporter
+
+
+def flush_and_collect_spans() -> list[ReadableSpan]:
+    """Force-flush the active provider and drain the runtime exporter.
+
+    Returns the collected spans in finish order, then clears the buffer so
+    subsequent runs in the same long-lived container don't bleed across
+    sessions.
+    """
+    if _RUNTIME_EXPORTER is None:
+        return []
+    provider = cast(TracerProvider, trace.get_tracer_provider())
+    provider.force_flush()
+    spans = list(_RUNTIME_EXPORTER.get_finished_spans())
+    _RUNTIME_EXPORTER.clear()
+    return spans
 
 
 def install_in_memory_exporter() -> Any:
@@ -86,7 +140,7 @@ def install_in_memory_exporter() -> Any:
 
 
 def _tracer() -> Tracer:
-    return trace.get_tracer("triage.mcp_server")
+    return trace.get_tracer(_TRACER_NAME or "triage.mcp_server")
 
 
 @contextmanager

@@ -35,7 +35,11 @@ repos:
     hooks:
       - id: detect-secrets
         args: [--baseline, .secrets.baseline]
-        exclude: ^(uv\.lock|package-lock\.json)$
+        # Per-run eval JSONs under docs/eval-results/runs/ contain OTel
+        # trace/span ids and Bedrock tool-use ids (all high-entropy
+        # identifiers, none are secrets). Excluding by path is simpler
+        # than line-by-line allowlists.
+        exclude: ^(uv\.lock|package-lock\.json|docs/eval-results/runs/.+\.json)$
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
