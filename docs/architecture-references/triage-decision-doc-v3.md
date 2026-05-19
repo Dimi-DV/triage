@@ -178,9 +178,18 @@ Trigger conditions worth naming in the interview:
 
 None of these are speculative for production AIOps in larger orgs; they're the *normal* shape past a certain scale. The capstone is deliberately below all four thresholds — which is why pure single-agent + AGENT.md is the right call **for this scope** and the wrong call for production beyond ~one team.
 
-### 3.11 AGENT.md as a versioned behavioral interface
+### 3.11 AGENT.md + runbooks-api split; both as versioned behavioral interfaces
 
-`agent/AGENT.md` is the single system prompt that drives the lead agent's reasoning on every alarm. Every prescription in it — which tool to call when, what trigger condition fires which branch, what level of specificity the diagnosis requires — affects every scenario in the corpus and every production alarm the agent handles. Treating it as a free-form text file is the wrong model: it is a **versioned behavioral interface**, structurally analogous to a public API on a load-bearing library.
+The agent's reasoning is driven by **two** load-bearing artifacts working together, not one:
+
+1. **`agent/AGENT.md`** — general investigation principles, the tool surface, hard rules, and a step-0 instruction to fetch any alarm-specific runbook before reasoning. Stays small (target ~2,500 tokens, like CLAUDE.md). Applies to *every* alarm.
+2. **`runbooks-api/*` runbook store** (`runbooks/<alarm-class>.md`, parsed by `runbooks_api_lookup_runbook(alarm_name)`) — alarm-specific procedures, fetched on demand. Each runbook has the parseable structure from the `/add-runbook` skill (trigger, prereqs, numbered steps, rollback, escalation). Applies *only* when the alarm matches; costs zero tokens otherwise.
+
+This split is the entire reason `runbooks-api` is one of the four canonical namespaces (§3.2, §3.6). Scenario-specific reasoning belongs in runbook content; general behavior belongs in AGENT.md. The alternative — every scenario adding prescriptions to AGENT.md — bloats the system prompt linearly with the corpus (already 3× growth by scenario 03; see `docs/agent-md-changelog.md` for the trajectory), forces the agent to re-read the entire surface on every alarm to find the applicable branch, and erases the runbook-deviation pattern that the multi-agent expansion path (§3.10) depends on.
+
+**`runbooks-api` is a current spec gap, not a future iteration.** Per §3.6 and the Day 30 / Day 36 sprint commitments, the runbook content + `runbooks_api_lookup_runbook` tool were supposed to ship by now. They didn't. As of scenario 03, alarm-specific prescriptions have been landing in AGENT.md instead, which is why AGENT.md grew from 54 to 169 lines in two scenarios. Closing this gap is the highest-priority architectural cleanup before scenario 04.
+
+**Both artifacts are versioned behavioral interfaces** — changes to either affect every scenario in the corpus and every production alarm the agent handles. Treating either as a free-form text file is the wrong model; they are structurally analogous to public APIs on a load-bearing library.
 
 **Discipline:** every substantive edit to `agent/AGENT.md` lands with a paired entry in [`docs/agent-md-changelog.md`](../agent-md-changelog.md), in the same commit. The entry records:
 
@@ -188,10 +197,13 @@ None of these are speculative for production AIOps in larger orgs; they're the *
 - **Change summary** — what was added/removed/modified at the prescription level (not line-level; that's git).
 - **Validation** — the post-change run JSON that demonstrates the fix worked. An AGENT.md change without a corresponding Match (2.0) verdict is half a change.
 - **Risk** — what else this change could affect. Broadening a trigger to fix scenario N can regress scenario N-1; the changelog forces the author to consider that explicitly.
+- **Runbook check** — whether the prescription being added is general (belongs in AGENT.md) or alarm-specific (belongs in a runbook). Once `runbooks_api_lookup_runbook` ships, every "scenario-specific" prescription currently in AGENT.md gets migrated out. Future changes default to runbook entries unless the behavior is genuinely general.
+
+A parallel changelog discipline applies to runbooks themselves once `runbooks-api` is built (one file per alarm class, each with its own version history).
 
 **Why this matters specifically for this project's portfolio narrative:** the eval-loop-finds-a-real-bug story (FM-3.3 caught + fixed + verified, end-to-end) only holds if the chain of cause→fix→validation is traceable per change. The changelog is the human-readable manifest of that chain across scenarios. Without it, "we fixed it" becomes a claim instead of a citation.
 
-Codified as a hard rule in `CLAUDE.md` rule #6. Adding scenarios to the corpus implicitly adds the obligation to update this file whenever a scenario surfaces a gap.
+Codified as a hard rule in `CLAUDE.md` rule #6. Adding scenarios to the corpus implicitly adds the obligation to update the changelog whenever a scenario surfaces a gap — and, once `runbooks-api` ships, to write the prescription as a runbook entry first and as an AGENT.md edit only if it's genuinely general.
 
 ---
 
