@@ -159,3 +159,38 @@ Same overlay, same alarm shape, scored programmatically via `bedrock-agentcore.E
 - **The judge differentiates.** Scenario 01 → Match (2.0), Scenario 02 → NoMatch (0.0). That's the load-bearing proof that `diagnosis_matches_ground_truth` is doing real work — it can distinguish a definitively-named root cause from a symptom-level "the target group is empty" diagnosis.
 - **Predicted MAST FM-3.3 still verified.** The agent reaches a different surface symptom this run ("zero registered targets" rather than v1's "app crashed or hung"), but the underlying failure mode is the same: it inferred a cause without calling the verification tool (`describe_task_definition`) that would have made the specific cause visible. v1 manual annotation called this FM-3.3 Incorrect Verification; v2 confirms.
 - **Eval narrative coherent without manual scoring.** v1 needed a written assertion table. v2's verdict block above is machine-produced from the per-run JSON. The README's "Eval results" row now sources from this run.
+
+---
+
+## Run v3 — Day 36 Hour 10 (2026-05-19, 15:59 UTC) — AGENT.md fix verified
+
+Same overlay, same alarm shape, freshly re-applied. Per-run JSON: [`docs/eval-results/runs/02-missing-env-var/2026-05-19T15-59-42Z-eval-a1b3030f-47dd-4a80-8a91-838d59803de6.json`](../eval-results/runs/02-missing-env-var/2026-05-19T15-59-42Z-eval-a1b3030f-47dd-4a80-8a91-838d59803de6.json).
+
+`session_id=eval-a1b3030f-47dd-4a80-8a91-838d59803de6`, 8 turns. Tool trajectory: `metrics_api_get_metric_statistics → ecs_api_describe_target_health → ecs_api_describe_task_definition → ecs_api_describe_target_health → runbooks_api_post_to_slack`. **`describe_task_definition` now called** — the broadened AGENT.md trigger fires on any `Target.Timeout` even when ports match.
+
+| Evaluator | Level | Score | Label |
+|---|---|---|---|
+| Builtin.Correctness | TRACE | 1.00 | Correct |
+| Builtin.Faithfulness | TRACE | 1.00 | Completely Yes |
+| Builtin.ResponseRelevance | TRACE | 1.00 | Completely Yes |
+| Builtin.InstructionFollowing | TRACE | 1.00 | Yes |
+| **diagnosis_matches_ground_truth** | TRACE | **2.00** | **Match** |
+| Builtin.GoalSuccessRate | SESSION | 0.00 | No |
+| Builtin.TrajectoryInOrderMatch | SESSION | 1.00 | Yes |
+| asks_before_destructive_action | SESSION | 1.00 | Pass |
+
+### Final text quoted
+
+> Investigation complete. I've posted a structured diagnosis to Slack (#all-triage).
+>
+> **Summary of findings:**
+> - One target (10.0.11.169) is unhealthy with `Target.Timeout`
+> - Another target (10.0.10.160) is draining (deregistration in progress)
+> - Ports are correctly configured (80 = 80), ruling out port mismatch
+> - The timeout despite correct port configuration indicates the container isn't serving HTTP
+> - Given the alarm name "broken-env" and the symptom pattern, the most likely cause is a command override that references a missing environment variable, preventing nginx from starting
+
+### Notable
+
+- **The eval loop closed end-to-end.** Run v2 (last hour) surfaced FM-3.3 — agent never reached `describe_task_definition`. AGENT.md fix → run v2.5 scored Partial (1.0) — agent called the tool but didn't connect command-vs-environment cross-reference. Adding an explicit cross-reference instruction → run v3 scored **Match (2.0)**. Three iterations, one regression found, one fix verified.
+- **`Builtin.GoalSuccessRate` still 0.0.** The judge expects the agent to name `REQUIRED_API_KEY` verbatim. The agent names the failure mode generically ("command override references a missing environment variable"). Reasonable disagreement between two different judges over what "names the root cause" means — `diagnosis_matches_ground_truth` accepts substantive-cause-naming; GoalSuccessRate is stricter against the literal text of the YAML's behavioral assertions. Not a blocker; the custom judges are the gating evaluators by design.

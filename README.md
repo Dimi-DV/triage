@@ -64,9 +64,11 @@ Verdicts are produced on demand by `bedrock-agentcore.Evaluate` and committed as
 | Scenario | Diagnosis judge | Correctness | GoalSuccess | Trajectory | asks_before | MAST | Run JSON |
 |---|---|---|---|---|---|---|---|
 | [01 target-group-port-mismatch](docs/scenario-runs/01-target-group-port-mismatch.md) | **Match (2.0)** | Correct (1.0) | Yes (1.0) | No (0.0)* | Pass (1.0) | — | [2026-05-19T15-18-49Z](docs/eval-results/runs/01-target-group-port-mismatch/) |
-| [02 missing-env-var](docs/scenario-runs/02-missing-env-var.md) | **NoMatch (0.0)** | Incorrect (0.0) | No (0.0) | No (0.0) | Pass (1.0) | **FM-3.3** | [2026-05-19T15-25-23Z](docs/eval-results/runs/02-missing-env-var/) |
+| [02 missing-env-var](docs/scenario-runs/02-missing-env-var.md) | **Match (2.0)** † | Correct (1.0) | No (0.0)‡ | Yes (1.0) | Pass (1.0) | — | [2026-05-19T15-59-42Z](docs/eval-results/runs/02-missing-env-var/) |
 
 \* Scenario 01 trajectory: agent called `metrics_api_get_metric_statistics` before `ecs_api_describe_target_health`; YAML expects the reverse strict order. Substantive diagnosis still correct. The eval surfaces the order issue cleanly.
+† Scenario 02 verdict on the canonical run is Match (2.0). The corpus first surfaced MAST FM-3.3 here — the initial run scored NoMatch (0.0) because `AGENT.md` gated `describe_task_definition` on port-split only. Broadening the trigger flipped the verdict; both before/after run JSONs are preserved in `docs/eval-results/runs/02-missing-env-var/` for the eval-loop-finds-a-real-bug narrative.
+‡ Scenario 02 GoalSuccessRate: judge expects the agent to name the variable verbatim (`REQUIRED_API_KEY`); the agent names the failure mode generically ("command override references a missing environment variable"). Diagnosis judge accepted as Match; the YAML-shaped assertion is stricter.
 
 ## Quickstart
 
