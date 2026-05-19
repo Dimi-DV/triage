@@ -178,6 +178,21 @@ Trigger conditions worth naming in the interview:
 
 None of these are speculative for production AIOps in larger orgs; they're the *normal* shape past a certain scale. The capstone is deliberately below all four thresholds — which is why pure single-agent + AGENT.md is the right call **for this scope** and the wrong call for production beyond ~one team.
 
+### 3.11 AGENT.md as a versioned behavioral interface
+
+`agent/AGENT.md` is the single system prompt that drives the lead agent's reasoning on every alarm. Every prescription in it — which tool to call when, what trigger condition fires which branch, what level of specificity the diagnosis requires — affects every scenario in the corpus and every production alarm the agent handles. Treating it as a free-form text file is the wrong model: it is a **versioned behavioral interface**, structurally analogous to a public API on a load-bearing library.
+
+**Discipline:** every substantive edit to `agent/AGENT.md` lands with a paired entry in [`docs/agent-md-changelog.md`](../agent-md-changelog.md), in the same commit. The entry records:
+
+- **Motivation** — which scenario, which run JSON surfaced the gap. The eval corpus is the regression test; the run JSON is the test report.
+- **Change summary** — what was added/removed/modified at the prescription level (not line-level; that's git).
+- **Validation** — the post-change run JSON that demonstrates the fix worked. An AGENT.md change without a corresponding Match (2.0) verdict is half a change.
+- **Risk** — what else this change could affect. Broadening a trigger to fix scenario N can regress scenario N-1; the changelog forces the author to consider that explicitly.
+
+**Why this matters specifically for this project's portfolio narrative:** the eval-loop-finds-a-real-bug story (FM-3.3 caught + fixed + verified, end-to-end) only holds if the chain of cause→fix→validation is traceable per change. The changelog is the human-readable manifest of that chain across scenarios. Without it, "we fixed it" becomes a claim instead of a citation.
+
+Codified as a hard rule in `CLAUDE.md` rule #6. Adding scenarios to the corpus implicitly adds the obligation to update this file whenever a scenario surfaces a gap.
+
 ---
 
 ## 4. Sprint structure (Days 31–36)

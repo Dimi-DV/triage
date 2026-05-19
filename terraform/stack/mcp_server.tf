@@ -149,6 +149,28 @@ data "aws_iam_policy_document" "mcp_task" {
     resources = ["*"]
   }
 
+  # logs-api namespace. Scoped to `/ecs/*` log groups so the agent can
+  # inspect any ECS service's stdout/stderr (own service plus overlay-
+  # created sidekicks). DescribeLogGroups is region-wide and resource-less.
+  statement {
+    sid = "ReadOnlyCloudWatchLogs"
+    actions = [
+      "logs:FilterLogEvents",
+      "logs:GetLogEvents",
+      "logs:DescribeLogStreams",
+    ]
+    resources = [
+      "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/ecs/*",
+      "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/ecs/*:log-stream:*",
+    ]
+  }
+
+  statement {
+    sid       = "DescribeLogGroups"
+    actions   = ["logs:DescribeLogGroups"]
+    resources = ["*"]
+  }
+
   statement {
     sid       = "PutAuditObjects"
     actions   = ["s3:PutObject"]

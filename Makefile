@@ -1,4 +1,4 @@
-.PHONY: help install lint format typecheck test test-cov check run-mcp-server eval eval-scenario plan apply destroy clean fis-list build-mcp-image push-mcp-image build-agent-image push-agent-image redeploy-mcp provision-agentcore provision-agentcore-dry agent-smoke
+.PHONY: help install lint format typecheck test test-cov check run-mcp-server eval eval-scenario plan apply destroy clean fis-list fis-start-az-slowdown fis-stop-experiment build-mcp-image push-mcp-image build-agent-image push-agent-image redeploy-mcp provision-agentcore provision-agentcore-dry agent-smoke
 
 # Default target: show help
 .DEFAULT_GOAL := help
@@ -139,6 +139,16 @@ fis-list: ## List available FIS experiment templates
 fis-run: ## Start an FIS experiment (usage: make fis-run TEMPLATE=<id>)
 	@if [ -z "$(TEMPLATE)" ]; then echo "Usage: make fis-run TEMPLATE=<experiment-template-id>"; exit 1; fi
 	aws fis start-experiment --experiment-template-id $(TEMPLATE)
+
+fis-start-az-slowdown: ## Start scenario 03's FIS AZ-disconnect experiment (3-min duration, AZ-a)
+	@TID=$$(terraform -chdir=terraform/overlays/az-slowdown output -raw fis_template_id 2>/dev/null); \
+	if [ -z "$$TID" ]; then echo "az-slowdown overlay not applied; cd terraform/overlays/az-slowdown && terraform apply first"; exit 1; fi; \
+	aws fis start-experiment --experiment-template-id $$TID --region $(AWS_REGION) --output json | tee /tmp/fis-az-slowdown.json; \
+	echo; echo "Experiment started. Stop manually with: make fis-stop-experiment ID=$$(jq -r .experiment.id /tmp/fis-az-slowdown.json)"
+
+fis-stop-experiment: ## Stop a running FIS experiment (usage: make fis-stop-experiment ID=<experiment-id>)
+	@if [ -z "$(ID)" ]; then echo "Usage: make fis-stop-experiment ID=<experiment-id>"; exit 1; fi
+	aws fis stop-experiment --id $(ID) --region $(AWS_REGION)
 
 # ============================================================
 # Housekeeping

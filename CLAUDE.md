@@ -41,7 +41,7 @@ An AIOps incident response agent on AWS Bedrock AgentCore. Mirrors the AWS DevOp
 - **Agent system prompts:** `agent/AGENT.md` (singular). Never `AGENTS.md` inside `agent/` — that would collide with the dev-side AGENTS.md convention used by Codex CLI.
 - **Terraform resources:** `<env>-<purpose>-<resource>` — e.g. `dev-triage-agent-runtime`, `dev-triage-audit-<account-id>`. Driven off `local.name_prefix = "${var.environment}-${var.project_name}"`
 - **Cedar runtime actions:** `<GatewayTargetName>___<tool_name>` — TRIPLE underscore. AWS docs are inconsistent (some show double); the verified runtime format matching MCP `tools/list` output is triple. Example: `TriageMcpGateway___metrics_api_query_cloudwatch`.
-- **FIS templates:** `fis-templates/<fault-type>.tf`
+- **FIS scenarios:** `terraform/overlays/<scenario>/` — both the FIS experiment template AND the victim service it disrupts live in the same overlay, parallel to the Terraform misconfiguration overlays. The earlier convention `fis-templates/<fault-type>.tf` (template alone, victim elsewhere) was dropped in favor of the atomic-apply-destroy parity with overlays 01/02. Stop conditions watch a production guard-rail alarm (live MCP TG `UnHealthyHostCount`), never the eval-trigger alarm itself.
 - **Eval scenarios:** `evals/scenarios/<NN>-<description>.yaml`
 - **Commit messages:** `Day NN Hour M: <what got built>` (the git log doubles as the build journal)
 
@@ -51,7 +51,8 @@ An AIOps incident response agent on AWS Bedrock AgentCore. Mirrors the AWS DevOp
 2. **Always `terraform plan` before `terraform apply`.** The PreToolUse terraform-apply-gate hook blocks `apply` if no `plan` ran in the same directory within the last 30 minutes.
 3. **Read-only IAM by default.** Write tools must be Cedar-gated at the Gateway boundary. No write tools without a corresponding Cedar policy in `cedar-policies/`.
 4. **Every write tool audits.** Append to S3 Object Lock bucket *before* executing the write.
-5. **MCP tools live in exactly four namespaces:** ecs-api, logs-api, metrics-api, runbooks-api. No new namespaces, no orphan tools. (This rule applies to MCP tools only — Terraform, FIS, and Cedar artifacts are not constrained by it.)"
+5. **MCP tools live in exactly four namespaces:** ecs-api, logs-api, metrics-api, runbooks-api. No new namespaces, no orphan tools. (This rule applies to MCP tools only — Terraform, FIS, and Cedar artifacts are not constrained by it.)
+6. **Every edit to `agent/AGENT.md` must include a new entry in `docs/agent-md-changelog.md` in the same commit.** AGENT.md is the load-bearing system prompt — every change is a behavioral interface change with potential to regress other scenarios. The changelog entry records: motivation (which scenario + run JSON surfaced the gap), summary of what changed, validation (post-change run JSON proving the fix worked), and risk (other branches in the prescription tree this could affect). Skipping the changelog entry is a regression. See the rationale and format in `docs/agent-md-changelog.md` itself."
 
 ## Soft rules (preferences)
 

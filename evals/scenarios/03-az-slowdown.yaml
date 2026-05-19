@@ -1,0 +1,102 @@
+# AgentCore Evaluations — outage corpus scenario 03.
+#
+# Schema: .claude/skills/add-outage-scenario/SKILL.md §"Always".
+# Paired with: terraform/overlays/az-slowdown/
+
+name: az-slowdown
+type: fis
+description: >
+  AWS FIS injects `aws:network:disrupt-connectivity` with `scope=all`
+  against the AZ-a private subnet for 5 minutes — a total network
+  blackhole on that subnet (no traffic in or out). A 4-task multi-AZ
+  victim Fargate service loses its AZ-a tasks from the ALB's
+  perspective; UnHealthyHostCount on the victim TG rises and the alarm
+  fires. The task definition itself is correctly configured — port
+  mapping, command, environment, and health-check block all look
+  normal — so the cause is not at the application layer. The
+  load-bearing evidence is in container logs: each victim task runs a
+  curl-based heartbeat sidecar that TCP-pings the stack RDS endpoint
+  every 5s and logs `HEARTBEAT OK` or `HEARTBEAT TIMEOUT` with the
+  task's AZ identity (extracted from the ECS task-metadata endpoint).
+  Because the AZ-a tasks have lost their network egress entirely, they
+  can't push logs to CloudWatch — they go silent for the experiment's
+  duration. The AZ-b tasks keep emitting `HEARTBEAT OK` lines normally.
+  The asymmetric pattern (all recent heartbeat lines from one AZ, none
+  from the other) is what identifies the AZ-scoped network event.
+
+# What the agent should conclude. Used by the response-correctness
+# evaluator and the diagnosis_matches_ground_truth LLM-as-judge.
+reference_answer: >
+  ALB target group dev-triage-az-victim-tg has unhealthy targets because
+  the tasks in the us-east-1a private subnet are unreachable from the
+  ALB's health-check probes. The task definition itself is correctly
+  configured — port mapping, command, environment, and health-check
+  block all look normal — so the cause is NOT at the application layer.
+  The unhealthy/draining targets are clustered in the 10.0.10.0/24
+  subnet (us-east-1a) while the healthy ones are in 10.0.11.0/24
+  (us-east-1b). The load-bearing supporting evidence lives in container
+  logs (`/ecs/dev-triage-az-victim`): the `heartbeat` sidecar's recent
+  log lines come predominantly from one AZ, with the other AZ silent or
+  showing connection timeouts — the asymmetric heartbeat-log presence
+  between the two AZs is what identifies the AZ-scoped network event.
+  The correct diagnosis names the symptom at the right level of
+  specificity: an AZ-scoped network event impacting one private subnet
+  at the infrastructure layer (not at the application layer). The
+  underlying trigger could be a real production AZ outage, a chaos
+  experiment, or a misconfigured NACL — the agent's job is to identify
+  the layer and scope from observable symptoms, not to name the
+  specific trigger (which would require infrastructure-layer tooling
+  the agent does not have). Remediation: in a real AZ outage, fail
+  traffic away from the impaired AZ via ALB target deregistration or
+  Route 53 health-check-based failover; the agent should suggest
+  investigating recent infrastructure changes (FIS experiments,
+  network ACL modifications, AWS Health events) as the next step. The
+  live MCP service is unaffected — this is isolated to the sidekick
+  service from the az-slowdown overlay.
+
+behavioral_assertions:
+  - "Agent identifies the unhealthy target group by name (dev-triage-az-victim-tg) from the alarm payload."
+  - "Agent calls ecs_api_describe_target_health before posting — sees mixed state across the registered targets, with the unhealthy targets clustered in one private subnet CIDR (us-east-1a, 10.0.10.0/24) and the healthy ones in the other (us-east-1b, 10.0.11.0/24)."
+  - "Agent calls ecs_api_describe_task_definition and observes that the task definition itself is correctly configured (port mapping aligned, no missing env vars, command is the default nginx entrypoint with a sed rewrite for port 8080, health_check is well-formed). The null result is part of the reasoning chain — it rules out the app-layer causes that scenarios 01 and 02 surfaced."
+  - "Agent calls logs_api_filter_log_events against the victim service's log group (/ecs/dev-triage-az-victim). This is the load-bearing tool call for this scenario — without it the agent cannot see the asymmetric heartbeat-log presence that identifies the AZ-scoped network event."
+  - "Agent's diagnosis cites at least one concrete piece of log evidence from the heartbeat sidecar (a quoted line, an AZ identity from a log line, or an explicit observation of which AZ's heartbeats are present vs missing)."
+  - "Agent's diagnosis identifies the AZ-scoped scope of the event — either by naming the impacted AZ (us-east-1a) from the IP CIDR of unhealthy targets, by correlating heartbeat-log presence to AZ, or by describing the asymmetric pattern between AZs even without naming a specific zone direction. The agent is NOT required to name 'FIS experiment' specifically — the chaos trigger is not observable from the agent's tools, and a real production AZ outage would present identically."
+  - "Agent does not propose a remediation that touches the live MCP service or the stack's primary target group (dev-triage-app-tg)."
+  - "Agent does not fabricate metric datapoints; if metrics_api_get_metric_statistics returns empty datapoints, the diagnosis says so."
+  - "Agent's severity is 'warning' or 'critical' (not 'info') — half of a multi-AZ service being unreachable is a real availability signal."
+
+# Ordered list of full namespaced tool IDs the agent should call.
+# logs_api_filter_log_events is the load-bearing tool — including it in
+# the expected sequence so TrajectoryInOrderMatch gives meaningful
+# signal on the agent reaching for logs. metrics_api_get_metric_statistics
+# is typical-but-not-load-bearing and is omitted to keep the in-order
+# trajectory tight.
+expected_tool_sequence:
+  - ecs_api_describe_target_health
+  - ecs_api_describe_task_definition
+  - logs_api_filter_log_events
+  - runbooks_api_post_to_slack
+
+# No Cedar-gated write tool exists yet for FIS stop. When one is added,
+# the correct action would be:
+#   fis_api_stop_experiment(experiment_id=<...>)
+correct_remediation: null
+
+# Predicted dominant MAST failure mode if the agent fails this scenario.
+# FM-3.3 Incorrect Verification again — most-likely failure is the
+# agent walking `describe_target_health → describe_task_definition`,
+# finding the task def healthy, concluding "unhealthy hosts of unknown
+# cause" and posting to Slack without reaching for logs_api_filter_log_events.
+# Same failure-mode family as scenario 02 v1/v2, different trigger
+# condition. If this run reproduces FM-3.3, the AGENT.md fix is a
+# different branch from scenario 02's: the load-bearing tool is logs-api,
+# not describe_task_definition, and the trigger condition is "task def
+# is correct but UnHealthyHostCount persists" — i.e. the cause is below
+# the application layer.
+mast_baseline_hypothesis: FM-3.3
+
+# Closest published benchmark scenario.
+comparable_baseline: >
+  AIOpsLab DeathStarBench AZ-outage / network-partition family.
+  STRATUS GPT-4o reports 69.2% AIOpsLab mitigation overall;
+  per-scenario AZ-outage numbers are not separately published.

@@ -107,14 +107,21 @@ def _resolve_dimension_values(tg_name: str, region: str) -> tuple[str, str, str]
 
 
 def _unhealthy_host_payload(alarm_name: str, tg_name: str, region: str) -> dict[str, Any]:
-    """Shape a CloudWatch UnHealthyHostCount alarm payload for an ALB TG."""
+    """Shape a CloudWatch UnHealthyHostCount alarm payload for an ALB TG.
+
+    Includes a fresh `StateChangeTime` so the agent has an unambiguous time
+    anchor. Without it, the LLM falls back to its training-data sense of
+    "current date" — which is months stale and produces empty log queries.
+    """
     tg_dim, lb_dim, account_id = _resolve_dimension_values(tg_name, region)
+    now = _dt.datetime.now(tz=_dt.UTC)
     return {
         "alarm": {
             "AlarmName": alarm_name,
             "AWSAccountId": account_id,
             "NewStateValue": "ALARM",
             "NewStateReason": _UNHEALTHY_HOST_ALARM_REASON,
+            "StateChangeTime": now.isoformat(),
             "Region": "US East (N. Virginia)",
             "AlarmDescription": (
                 f"ALB target group {tg_name} has unhealthy targets. Health "
@@ -145,6 +152,10 @@ _SCENARIO_ALARMS: dict[str, tuple[str, str]] = {
     "missing-env-var": (
         "dev-triage-broken-env-tg-unhealthy",
         "dev-triage-broken-env-tg",
+    ),
+    "az-slowdown": (
+        "dev-triage-az-victim-tg-unhealthy",
+        "dev-triage-az-victim-tg",
     ),
 }
 
