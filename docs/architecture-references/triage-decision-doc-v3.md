@@ -205,6 +205,25 @@ A parallel changelog discipline applies to runbooks themselves once `runbooks-ap
 
 Codified as a hard rule in `CLAUDE.md` rule #6. Adding scenarios to the corpus implicitly adds the obligation to update the changelog whenever a scenario surfaces a gap — and, once `runbooks-api` ships, to write the prescription as a runbook entry first and as an AGENT.md edit only if it's genuinely general.
 
+#### 3.11.1 The no-railroading rule
+
+When a scenario fails the eval, the corrective action depends on which artifact owns the gap. The decision tree is binary, and getting it wrong is the most common way to silently degrade the eval's value:
+
+- **If the failure is alarm-specific** — the scenario surfaces a fact or procedure only relevant to this alarm class — the fix is a **runbook entry**, not an AGENT.md prescription.
+- **If the failure is a gap in general reasoning** — the agent would also need this principle to handle alarms it's never seen — the fix is an AGENT.md edit, but **phrased as a general principle**. "When `describe_task_definition` looks correct and target health still shows unhealthy targets, reach for logs" is general. "When the alarm name contains `broken-env`, check for missing `$REQUIRED_API_KEY`" is railroading.
+
+**The anti-pattern to avoid:** agent fails scenario N → author adds scenario-N-specific instructions to AGENT.md → agent now passes scenario N. The agent didn't generalize; it got handed the answer key. The eval becomes a tautology — it's just testing whether the agent can read its own system prompt. Sessions 02 and 03 partly did this to AGENT.md (54 → 169 lines across two scenarios) before the runbooks split was identified as the architectural fix. Without this rule explicit, the pattern will recur every time a scenario underperforms.
+
+The rule applies symmetrically to runbooks: a runbook for alarm class X should not become a railroad either. A runbook lists procedure steps + expected evidence at each step + how to recognize when the procedure doesn't match observed reality. If the runbook reads like "the answer for this scenario is Y," it's too specific. If a runbook fix would only help one alarm in the class, the alarm class is too narrow and the runbook itself needs decomposition.
+
+#### 3.11.2 Runbook-less scenarios by design
+
+**At least ~3 of the 8–10 corpus scenarios ship without a runbook**, deliberately. These are the generalization tests: the agent's `runbooks_api_lookup_runbook` call returns null, and it must reason from AGENT.md principles + observable evidence alone. Without these scenarios, the corpus only tests "agent follows scripted procedures"; with them, it tests "agent generalizes to alarm classes it has no scaffolding for" — the actual claim a portfolio needs to make.
+
+The runbook-less scenarios should span fault families (network, dependency, capacity, security, config-drift) so the generalization claim isn't restricted to one shape. A run-bookless scenario that scores Match (2.0) is the load-bearing evidence that AGENT.md's general principles do work; one that scores NoMatch points at *AGENT.md*'s general reasoning being too thin, not at the need for another runbook entry. That distinction is what makes the eval able to grade the general-reasoning surface separately from the runbook coverage surface — which is what every productized agent vendor's blog says they had to figure out the hard way.
+
+Currently (Day 36): 0 runbook-less scenarios since runbooks themselves haven't shipped. Once `runbooks-api` lands, designate ~3 of scenarios 04–10 as runbook-less from the design phase. Document each one's runbook-less status in the scenario YAML so it's visible to anyone reading the corpus.
+
 ---
 
 ## 4. Sprint structure (Days 31–36)
