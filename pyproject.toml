@@ -47,7 +47,7 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.10",
     "pre-commit>=3.7",
-    "types-boto3[cloudwatch,ecs,elbv2,logs,s3,secretsmanager]>=1.35",
+    "types-boto3[cloudwatch,ecs,elbv2,logs,s3,secretsmanager]>=1.43.10",
     "moto[cloudwatch,logs,s3,secretsmanager]>=5.0",
 ]
 
