@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from types_boto3_cloudwatch.client import CloudWatchClient
     from types_boto3_ecs.client import ECSClient
     from types_boto3_elbv2.client import ElasticLoadBalancingv2Client
+    from types_boto3_logs.client import CloudWatchLogsClient
 
 AWS_REGION = "us-east-1"
 USER_AGENT_SUFFIX = "triage-mcp-server/0.1.0"
@@ -36,3 +37,7 @@ def get_elbv2_client() -> ElasticLoadBalancingv2Client:
 
 def get_ecs_client() -> ECSClient:
     return boto3.client("ecs", config=_default_config)
+
+
+def get_logs_client() -> CloudWatchLogsClient:
+    return boto3.client("logs", config=_default_config)

@@ -20,7 +20,7 @@ repos:
         # only. Tests stay loose (no type annotations required); src/ is strict.
         files: '^src/'
         additional_dependencies:
-          - types-boto3[cloudwatch,ecs,elbv2,s3,secretsmanager]
+          - types-boto3[cloudwatch,ecs,elbv2,logs,s3,secretsmanager]
           - types-PyYAML
           - pydantic>=2.7
           - mcp>=1.0

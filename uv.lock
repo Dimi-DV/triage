@@ -1410,7 +1410,7 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "ruff" },
-    { name = "types-boto3", extra = ["cloudwatch", "ecs", "elbv2", "s3", "secretsmanager"] },
+    { name = "types-boto3", extra = ["cloudwatch", "ecs", "elbv2", "logs", "s3", "secretsmanager"] },
 ]
 
 [package.metadata]
@@ -1418,7 +1418,7 @@ requires-dist = [
     { name = "boto3", specifier = ">=1.35" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "mcp", specifier = ">=1.0" },
-    { name = "moto", extras = ["cloudwatch", "s3", "secretsmanager"], marker = "extra == 'dev'", specifier = ">=5.0" },
+    { name = "moto", extras = ["cloudwatch", "logs", "s3", "secretsmanager"], marker = "extra == 'dev'", specifier = ">=5.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
     { name = "opentelemetry-api", specifier = ">=1.27" },
     { name = "opentelemetry-sdk", specifier = ">=1.27" },
@@ -1431,7 +1431,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
     { name = "slack-sdk", specifier = ">=3.27" },
     { name = "starlette", specifier = ">=0.40" },
-    { name = "types-boto3", extras = ["cloudwatch", "ecs", "elbv2", "s3", "secretsmanager"], marker = "extra == 'dev'", specifier = ">=1.35" },
+    { name = "types-boto3", extras = ["cloudwatch", "ecs", "elbv2", "logs", "s3", "secretsmanager"], marker = "extra == 'dev'", specifier = ">=1.35" },
     { name = "uvicorn", specifier = ">=0.30" },
 ]
 provides-extras = ["dev"]
@@ -1468,6 +1468,9 @@ ecs = [
 elbv2 = [
     { name = "types-boto3-elbv2" },
 ]
+logs = [
+    { name = "types-boto3-logs" },
+]
 s3 = [
     { name = "types-boto3-s3" },
 ]
@@ -1500,6 +1503,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/27/78/44fcfae352d2b99e3730728f998857dd88a07ec896e1672cc637713972e0/types_boto3_elbv2-1.43.0.tar.gz", hash = "sha256:7cea40fdaec6c000773e003e0c09186d235f39d84ba27c19006fef145b4cd4f3", size = 37773, upload-time = "2026-04-29T23:01:50.284Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/71/4d/c1611204e24f7778ba09f969dfffcd2d2a98b3ea5ac29da52487a5bea06d/types_boto3_elbv2-1.43.0-py3-none-any.whl", hash = "sha256:cebeac7e746a15b08a3cfe82aa04512fe8b188de139ba0ea208380c17cae28b7", size = 44336, upload-time = "2026-04-29T23:01:47.841Z" },
+]
+
+[[package]]
+name = "types-boto3-logs"
+version = "1.43.9"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e0/04/ffa4c832cc062059ccd6d2b843c39ab6e6ca4136a43816e7ffc9c566bc7b/types_boto3_logs-1.43.9.tar.gz", hash = "sha256:8d7d0a9c4718fb28c95f7388c9e6e304e9a41db9cf3784eaa9f6863cf550633b", size = 54706, upload-time = "2026-05-15T20:09:48.252Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/00/dc/06e345d552464ae7c60a34d9531d7549ad05c7a22a72469e590b6fceee64/types_boto3_logs-1.43.9-py3-none-any.whl", hash = "sha256:e3536ba56011e993d7ac22fbba9a38ce7e1567f219786bdad4ac81d601832f8a", size = 61872, upload-time = "2026-05-15T20:09:45.523Z" },
 ]
 
 [[package]]
