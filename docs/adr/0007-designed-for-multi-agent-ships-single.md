@@ -1,8 +1,16 @@
-# 0007 — Designed for multi-agent expansion; v1 ships single agent plus one stub subagent
+# 0007 — Designed for multi-agent expansion; v1 ships single agent
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-05-19 to drop stub subagent — see Amendment below)
 **Date:** 2026-05-13
 **Deciders:** Dimitrije
+
+## Amendment — 2026-05-19 (v3.1)
+
+The stub subagent commitment is dropped. The v3.1 spec amendment (§3.10) drops both (a) the "designed for multi-agent expansion" framing — the 2026 hiring signal filters against sprawling multi-agent demos — and (b) the stub Lambda + A2A endpoint originally bundled with this ADR.
+
+Reasoning recorded in spec §3.10: the stub added ~3–5 hours of agent-card-registration + OAuth-wiring work for marginal interview value. The architectural claim "I understand when multi-agent boundaries apply" is better made by *explaining when they apply* than by building one stub to point at — and the four MCP namespaces are tool categories, not domains needing separate agents.
+
+The "Alternatives considered" and "Consequences" sections below describe the pre-amendment reasoning and are preserved verbatim as historical record. Triage v1 ships **pure single-agent, no stub.** For the current architecture position, see spec §3.10 directly.
 
 ## Context
 

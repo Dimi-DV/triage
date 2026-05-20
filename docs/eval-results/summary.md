@@ -2,17 +2,17 @@
 
 > **Derived artifact.** Regenerate any time with `make eval-summary` (scans `docs/eval-results/runs/**/*.json`, writes this file). Hand-edits get overwritten — write narrative analysis into `docs/scenario-runs/<slug>.md` instead.
 
-**Total runs committed:** 12 across 3 scenarios.
+**Total runs committed:** 13 across 3 scenarios.
 
 ## Verdict distribution
 
-Across 12 eval runs on the `diagnosis_matches_ground_truth` judge (the gating evaluator):
+Across 13 eval runs on the `diagnosis_matches_ground_truth` judge (the gating evaluator):
 
 | Verdict | Count | Share |
 |---|---|---|
-| 🟢 Match | 7 | 58% |
-| 🔴 NoMatch | 3 | 25% |
-| 🟡 Partial | 2 | 17% |
+| 🟢 Match | 8 | 62% |
+| 🔴 NoMatch | 3 | 23% |
+| 🟡 Partial | 2 | 15% |
 
 ## MAST failure-mode distribution
 
@@ -36,6 +36,7 @@ _No MAST classifications recorded yet. MAST fires only on failed runs (diagnosis
 | 2026-05-19 15:59:42 | 🟢 Match | Yes | No | — | 10 | [eval-a1b3030f…](runs/02-missing-env-var/2026-05-19T15-59-42Z-eval-a1b3030f-47dd-4a80-8a91-838d59803de6.json) |
 | 2026-05-20 13:29:26 | 🟢 Match | Yes | Yes | — | 12 | [eval-19302ca8…](runs/02-missing-env-var/2026-05-20T13-29-26Z-eval-19302ca8-c7db-4699-91d8-a9451b07579e.json) |
 | 2026-05-20 16:10:25 | 🟢 Match | Yes | Yes | — | 12 | [eval-fa3f7ce8…](runs/02-missing-env-var/2026-05-20T16-10-25Z-eval-fa3f7ce8-fdb8-449c-9ee0-301bf079467a.json) |
+| 2026-05-20 16:36:56 | 🟢 Match | Yes | Yes | — | 12 | [eval-3aca60a5…](runs/02-missing-env-var/2026-05-20T16-36-56Z-eval-3aca60a5-bcff-4079-9f14-220ff9dd918b.json) |
 
 ### 03-az-slowdown
 

@@ -16,6 +16,7 @@ Keep entries tight. The point is the moment, not the explanation.
 ## Index
 
 - [001 — I caught Claude letting AGENT.md bloat; made it restore runbooks-api as a pillar](001-agent-md-bloat-runbooks-restoration.md) — caught a 6-day spec drift; forced 3 commits, a spec §3.11 rewrite, and the no-railroading rule
+- [002 — I held the line on multi-agent introspection; forced max-scope on corpus-readiness](002-multi-agent-line-held-scalability-scope-up.md) — caught an implicit multi-agent suggestion in Claude's automation pitch; overrode conservative scope on a scalability principle; re-pinned the no-railroading contract on the new MAST wiring
 
 ## Other moments worth writing up from this session (Day 36 Hour 11, 2026-05-19)
 
