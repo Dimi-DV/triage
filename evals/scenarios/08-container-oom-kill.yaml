@@ -1,0 +1,82 @@
+# AgentCore Evaluations — outage corpus scenario 08.
+#
+# Schema: .claude/skills/add-outage-scenario/SKILL.md §"Always".
+# Paired with: terraform/overlays/container-oom-kill/
+# RUNBOOK-LESS BY DESIGN (spec §3.11.2).
+
+name: container-oom-kill
+type: overlay
+alarm_payload_type: unhealthy_host_count
+alarm_name: dev-triage-oom-victim-tg-unhealthy
+target_resource: dev-triage-oom-victim-tg
+runbook_status: by_design_none
+description: >
+  Sidekick ECS task with the container's hard memory limit pinned at
+  128 MB. The container runs a Python script that spins up an HTTP
+  server briefly, then allocates 50 MB chunks in a loop with progress
+  logs. The kernel OOM-killer terminates the container after ~2
+  chunks; ECS replaces the task; the replacement OOMs in turn —
+  crashloop. UnHealthyHostCount > 0 fires on the victim TG. The
+  agent has no runbook for this alarm class; it must diagnose from
+  AGENT.md general principles. The diagnostic chain runs through
+  describe_task_definition (surfacing the tight memory limit and the
+  allocation-loop command), then logs (progress lines that cut off
+  mid-allocation indicating OOM — the kernel kill is abrupt and
+  there is no explicit `OOMKilled` log line in stdout because that
+  comes from ECS task stop reason, which is not in the MCP tool
+  surface).
+
+reference_answer: >
+  ALB target group dev-triage-oom-victim-tg has unhealthy targets
+  because the victim container is being OOM-killed by the kernel in
+  a crashloop. The task definition (describe_task_definition) shows
+  the container has a hard memory limit of 128 MB and a startup
+  command that allocates 50 MB chunks in a loop. Container logs
+  (`/ecs/dev-triage-oom-victim`) show progress lines like
+  `allocated block 1/20 (50MB), total mem=80MB` then go abruptly
+  silent — the script never reaches the `finished allocation loop`
+  marker. The pattern repeats per task restart: each replacement
+  task allocates a couple of chunks, hits the 128 MB hard limit,
+  gets killed by the kernel, ECS replaces it. The targets visible
+  via describe_target_health are unhealthy / in initial / sometimes
+  missing entirely (mid-replacement). The cause is at the task
+  definition layer — the configured memory limit is below what the
+  workload requires. Remediation: raise the container's memory
+  limit (and the task-level `memory` if needed) to a value that
+  comfortably exceeds the workload's actual usage. The live MCP
+  service is unaffected.
+
+behavioral_assertions:
+  - "Agent identifies the unhealthy target group by name (dev-triage-oom-victim-tg) from the alarm payload."
+  - "Agent calls runbooks_api_lookup_runbook for this alarm name and observes `found: false` — there is no runbook. Per AGENT.md step 2, the agent falls back to general principles, NOT to 'nothing to investigate.'"
+  - "Agent calls ecs_api_describe_target_health and observes unhealthy / initial / flapping target state — registered targets are not all healthy."
+  - "Agent calls ecs_api_describe_task_definition and observes the container's hard memory limit (128 MB) AND the container command that progressively allocates 50 MB chunks. The diagnosis must cite the memory limit explicitly."
+  - "Agent calls logs_api_filter_log_events and observes the allocation-progress lines that cut off mid-loop (silence after the 1st or 2nd block, before the `finished allocation loop` marker). The diagnosis cites this pattern as evidence of OOM."
+  - "Agent's diagnosis identifies the OOM crashloop as the cause — connecting the tight memory limit (from task def) with the abrupt log silence (from log query). It does NOT misattribute to a network event, an application bug independent of memory, or an IAM issue."
+  - "Agent's recommended remediation suggests raising the container's memory limit, NOT restarting the service or changing the application code's allocation pattern. The configured limit is the misconfiguration."
+  - "Agent does not propose a remediation that touches the live MCP service or the stack's primary target group (dev-triage-app-tg)."
+  - "Agent's severity is 'warning' or 'critical' (not 'info') — a crashlooping service is a real availability signal."
+
+expected_tool_sequence:
+  - runbooks_api_lookup_runbook
+  - ecs_api_describe_target_health
+  - ecs_api_describe_task_definition
+  - logs_api_filter_log_events
+  - runbooks_api_post_to_slack
+
+correct_remediation: null
+
+# Predicted dominant MAST failure mode if the agent fails this scenario.
+# FM-3.3 Incorrect Verification: the most-likely failure mode is the
+# agent observing the flapping targets, querying logs, seeing the
+# progress lines, but failing to connect them to OOM because there
+# is no explicit `OOMKilled` log message. The diagnostic leap requires
+# noticing that (a) the task def has a tight memory limit AND (b)
+# the logs show memory growing toward that limit before silence — and
+# the agent must do that synthesis without a runbook pointing at it.
+mast_baseline_hypothesis: FM-3.3
+
+comparable_baseline: >
+  ITBench v2 misconfigured-resources family + AIOpsLab OOM-restart
+  family. STRATUS GPT-4o reports ~50% mitigation on ITBench SRE
+  overall; OOM-specific scores are not separately published.
