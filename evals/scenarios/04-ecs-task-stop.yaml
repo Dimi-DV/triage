@@ -1,0 +1,105 @@
+# AgentCore Evaluations — outage corpus scenario 04.
+#
+# Schema: .claude/skills/add-outage-scenario/SKILL.md §"Always".
+# Paired with: terraform/overlays/ecs-task-stop/
+
+name: ecs-task-stop
+type: fis
+alarm_payload_type: unhealthy_host_count
+alarm_name: dev-triage-task-stop-victim-tg-unhealthy
+target_resource: dev-triage-task-stop-victim-tg
+runbook_status: shipped
+description: >
+  AWS FIS injects `aws:ecs:stop-task` against all tasks of the sidekick
+  victim ECS service. ECS replaces the stopped tasks per desired_count;
+  replacement tasks slow-boot (sleep 90s before nginx exec) so the
+  victim target group sees a sustained UnHealthyHostCount > 0 window
+  during recovery, the alarm fires, and the agent is invoked while
+  replacement tasks are still booting. The task definition itself is
+  correctly configured — port mapping, command, environment, and
+  health-check block all look normal — so the cause is NOT at the
+  application layer. The load-bearing evidence is the combination of
+  (a) describe_target_health showing registered targets in `initial`
+  or `unhealthy` state OR fewer registered targets than the service's
+  desired_count, and (b) recent `task starting (slow-boot)` marker
+  lines in the container log group from replacement tasks. The agent
+  diagnoses the shape — "tasks were stopped recently, service is
+  recovering" — without claiming the specific trigger (which would
+  require ECS task event history not in the current MCP surface).
+
+# What the agent should conclude. Used by the response-correctness
+# evaluator and the diagnosis_matches_ground_truth LLM-as-judge.
+reference_answer: >
+  ALB target group dev-triage-task-stop-victim-tg has unhealthy targets
+  because the sidekick service's tasks were stopped externally and the
+  replacement tasks launched by ECS are still booting (slow-boot
+  pattern in the task definition's container command — explicit `sleep`
+  before nginx exec). The task definition itself is correctly
+  configured — port mapping aligned, command is a deliberate slow-boot
+  wrapper around nginx, no missing env vars, health-check block well-
+  formed — so the cause is NOT at the application layer. The load-
+  bearing supporting evidence: (a) describe_target_health on the
+  victim TG shows registered targets in `initial` or `unhealthy` state
+  during boot, OR fewer registered targets than the service's
+  desired_count of 2; (b) container logs (`/ecs/dev-triage-task-stop-victim`)
+  contain recent `task starting (slow-boot)` marker lines from
+  replacement tasks within the last few minutes, confirming the
+  service is in active recovery. The correct diagnosis names the
+  symptom at the right level of specificity: a recent task disruption
+  + active recovery event at the orchestrator layer (not at the
+  application layer). The underlying trigger could be a deployment
+  rollback, a scale-in event, a manual ECS stop-task call, an FIS
+  chaos experiment, or a task crash — the agent's job is to identify
+  the shape (recent task disruption + slow-booting replacements) from
+  observable symptoms, not to name the specific trigger (which would
+  require ECS task event history via DescribeTasks, which is not in
+  the current MCP tool surface). Remediation: surface the recent task
+  disruption to the operator with the service name and the timing
+  evidence (when replacement tasks were observed starting); the
+  operator can correlate with deployment / scaling / chaos-experiment
+  records via CLI or console. The live MCP service is unaffected —
+  this is isolated to the sidekick service from the ecs-task-stop
+  overlay.
+
+behavioral_assertions:
+  - "Agent identifies the unhealthy target group by name (dev-triage-task-stop-victim-tg) from the alarm payload."
+  - "Agent calls ecs_api_describe_target_health before posting — sees registered targets in `initial` / `unhealthy` state during boot, OR fewer registered targets than the service's desired_count of 2."
+  - "Agent calls ecs_api_describe_task_definition and observes that the task definition is correctly configured — port mapping aligned, command is a deliberate slow-boot wrapper around nginx, no missing env vars, health-check block well-formed. The null result is part of the reasoning chain — it rules out the app-layer causes that scenarios 01 and 02 surfaced."
+  - "Agent calls logs_api_filter_log_events against the victim service's log group (/ecs/dev-triage-task-stop-victim). This is the load-bearing tool call — without it the agent cannot see the recent `task starting (slow-boot)` marker lines that confirm active recovery."
+  - "Agent's diagnosis cites at least one concrete piece of log evidence from the slow-boot pattern (a quoted `task starting` line, a recent timestamp on a startup marker, or an explicit observation that replacement tasks are actively booting)."
+  - "Agent's diagnosis identifies the shape of the event as a recent task disruption + active recovery — without claiming the specific trigger (deployment, scale-in, FIS, crash, manual stop). The chaos trigger is not observable from the agent's tools; a deployment rollback would present identically."
+  - "Agent does not propose a remediation that touches the live MCP service or the stack's primary target group (dev-triage-app-tg)."
+  - "Agent does not fabricate metric datapoints; if metrics_api_get_metric_statistics returns empty datapoints, the diagnosis says so."
+  - "Agent's severity is 'warning' or 'critical' (not 'info') — the sidekick service being unable to serve traffic is a real availability signal during the recovery window."
+
+# Ordered list of full namespaced tool IDs the agent should call.
+# logs_api_filter_log_events is the load-bearing tool — including it in
+# the expected sequence so TrajectoryInOrderMatch gives meaningful
+# signal on the agent reaching for logs.
+expected_tool_sequence:
+  - runbooks_api_lookup_runbook
+  - ecs_api_describe_target_health
+  - ecs_api_describe_task_definition
+  - logs_api_filter_log_events
+  - runbooks_api_post_to_slack
+
+# No Cedar-gated write tool exists yet for FIS stop. When one is added,
+# the correct action would be:
+#   fis_api_stop_experiment(experiment_id=<...>)
+correct_remediation: null
+
+# Predicted dominant MAST failure mode if the agent fails this scenario.
+# FM-3.3 Incorrect Verification: most-likely failure is the agent
+# concluding "tasks unhealthy of unknown cause" from describe_target_health
+# alone and posting to Slack without reaching for logs to confirm the
+# recent-disruption + active-recovery shape. Without logs, the agent
+# can't differentiate "tasks were just stopped" from "tasks have been
+# unhealthy for a while" — and the diagnosis would be too vague.
+mast_baseline_hypothesis: FM-3.3
+
+# Closest published benchmark scenario.
+comparable_baseline: >
+  AIOpsLab DeathStarBench task-restart family + ITBench v2
+  service-disruption subset. STRATUS GPT-4o reports 69.2% AIOpsLab
+  mitigation overall and ~50% on ITBench SRE; per-scenario task-stop
+  numbers are not separately published.
