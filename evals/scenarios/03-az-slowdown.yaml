@@ -72,6 +72,7 @@ behavioral_assertions:
 # is typical-but-not-load-bearing and is omitted to keep the in-order
 # trajectory tight.
 expected_tool_sequence:
+  - runbooks_api_lookup_runbook
   - ecs_api_describe_target_health
   - ecs_api_describe_task_definition
   - logs_api_filter_log_events

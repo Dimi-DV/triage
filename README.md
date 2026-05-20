@@ -47,7 +47,7 @@ Decision doc with full architectural reasoning: [`docs/architecture-references/t
 | Component | Status |
 |---|---|
 | Production AWS stack (Terraform) | Day 32 VPC/RDS/ACM + Day 33 ALB/WAF/Route 53/ECS + Day 34/35 ECS service + AgentCore Runtime — **deployed to AWS** |
-| Custom MCP server (four namespaces) | **5 live tools, all four namespaces have at least one tool:** `metrics_api_get_metric_statistics`, `ecs_api_describe_target_health`, `ecs_api_describe_task_definition`, `logs_api_filter_log_events`, `runbooks_api_post_to_slack`. **`runbooks-api` is half-built:** the `runbooks_api_lookup_runbook` tool + `runbooks/<alarm-class>.md` content (the load-bearing pair per spec §3.6 / §3.11 — alarm-specific procedures fetched on demand by the agent) are an outstanding Day 30 / Day 36 spec gap. Until it ships, alarm-specific prescriptions land in `agent/AGENT.md` instead, which bloats the system prompt linearly with the corpus (already 3× from baseline by scenario 03 — see [`docs/agent-md-changelog.md`](docs/agent-md-changelog.md)). Highest-priority cleanup before scenario 04 |
+| Custom MCP server (four namespaces) | **6 live tools, all four namespaces load-bearing:** `metrics_api_get_metric_statistics`, `ecs_api_describe_target_health`, `ecs_api_describe_task_definition`, `logs_api_filter_log_events`, `runbooks_api_lookup_runbook`, `runbooks_api_post_to_slack`. The `runbooks-api` split shipped Day 36 Hour 12: lookup tool + `runbooks/{target-group-port-mismatch, missing-env-var, az-slowdown}.md` + AGENT.md restructure (169 → 128 lines, 🔴 alarm-specific prescriptions migrated out into runbook files). All three corpus scenarios re-scored Match (2.0) post-split — see [`docs/agent-md-changelog.md`](docs/agent-md-changelog.md) v4 entry |
 | AgentCore Runtime + system prompt | Runtime created via `make provision-agentcore`; refreshes on rerun via `update_agent_runtime` with env-vars preserved (see `feedback_update_agent_runtime_replaces` for the full-replace trap). Agent runs Claude Sonnet 4.5 |
 | AgentCore Gateway | Created with `authorizerType=AWS_IAM` — callers sign with SigV4. DYNAMIC tool listing — new MCP tools propagate without re-provisioning the Gateway |
 | Slack | Bot token in Secrets Manager; alarm → Lambda → Runtime → MCP → Slack path verified end-to-end on real outages, posts land in `#all-triage` |
@@ -156,7 +156,7 @@ Outage experiments (FIS) cost pennies per action. Stop conditions are configured
 - `terraform/overlays/` — outage scenarios (misconfiguration overlays). Two live: `target-group-port-mismatch/`, `missing-env-var/`. More TBD
 - `cedar-policies/` — Cedar policy files (Gateway interceptor wiring deferred)
 - `fis-templates/` — AWS FIS experiment templates — not yet populated (gated on logs-api namespace)
-- `runbooks/` — operational procedures (parsed by `runbooks-api`) — not yet populated
+- `runbooks/` — operational procedures parsed by `runbooks_api_lookup_runbook` (3 entries: target-group-port-mismatch, missing-env-var, az-slowdown)
 - `evals/scenarios/` — AgentCore Evaluations ground-truth YAMLs; one per scenario in the corpus
 - `evals/judges/` — custom LLM-as-judge prompt templates
 - `evals/run_evals.py` — per-scenario eval harness (invoke runtime, poll output log group for verdicts, score)

@@ -31,6 +31,11 @@ WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/src /app/src
 
+# Runbooks ship with the image so runbooks_api_lookup_runbook can read them
+# at /app/runbooks/<slug>.md. The lookup tool's _runbooks_dir() picks this
+# path up automatically when the container is the runtime.
+COPY runbooks/ /app/runbooks/
+
 # Run as a non-root user; ECS task role still gates IAM regardless.
 RUN groupadd --system app && useradd --system --gid app --home /app app && chown -R app:app /app
 USER app

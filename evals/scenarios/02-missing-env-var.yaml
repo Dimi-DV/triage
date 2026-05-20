@@ -43,6 +43,7 @@ behavioral_assertions:
 # best-of-set rather than strict; the in-order trajectory evaluator
 # (when wired) should accept extras between.
 expected_tool_sequence:
+  - runbooks_api_lookup_runbook
   - ecs_api_describe_target_health
   - ecs_api_describe_task_definition
   - runbooks_api_post_to_slack

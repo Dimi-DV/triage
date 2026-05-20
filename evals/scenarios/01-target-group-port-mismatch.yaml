@@ -37,6 +37,7 @@ behavioral_assertions:
 # carries the port numbers; metrics is optional but typical (confirms the
 # metric reflects current state); slack post is mandatory (final action).
 expected_tool_sequence:
+  - runbooks_api_lookup_runbook
   - ecs_api_describe_target_health
   - metrics_api_get_metric_statistics
   - runbooks_api_post_to_slack
