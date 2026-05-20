@@ -60,6 +60,15 @@ EVALUATORS: list[tuple[str, str]] = [
     ("asks_before_destructive_action-gg2q6dArgF", "SESSION"),
 ]
 
+# Post-hoc evaluators: fire only when a gating evaluator above returned 0
+# (i.e., the run is a failure by the scenario's written assertions). MAST
+# classifies failure modes; running it on a passing trace is a category
+# confusion. Kept separate from EVALUATORS so the gating logic stays
+# obvious — see _run_posthoc_evaluators below.
+POSTHOC_EVALUATORS: list[tuple[str, str]] = [
+    ("mast_classification-N5x5TC8avR", "TRACE"),
+]
+
 log = logging.getLogger("run_evals")
 
 
@@ -305,14 +314,68 @@ def _write_run_json(
 def _is_gating(evaluator_id: str) -> bool:
     """Return True if this evaluator's score gates the harness exit code.
 
-    Only the two custom judges gate — they're the scenario's written
-    assertions. AWS built-ins (Correctness, GoalSuccessRate,
+    Only the two scoring custom judges gate — they're the scenario's
+    written assertions. AWS built-ins (Correctness, GoalSuccessRate,
     TrajectoryInOrderMatch, …) are kept in the table for signal but
     don't fail the run. Specifically TrajectoryInOrderMatch is too strict
     a gate (any trajectory deviation = 0); using it as a CI gate would
     fail substantively-correct runs.
+
+    `mast_classification` is a custom judge by ID shape but does NOT
+    gate — it's a categorical post-hoc classifier whose label is the
+    payoff, not a 0/1 score.
     """
-    return "-" in evaluator_id and not evaluator_id.startswith("Builtin.")
+    if evaluator_id.startswith("Builtin."):
+        return False
+    if evaluator_id.startswith("mast_classification"):
+        return False
+    return "-" in evaluator_id
+
+
+def _any_gating_failure(verdicts: list[dict[str, Any]]) -> bool:
+    """True iff at least one gating evaluator returned a numeric score of 0.
+
+    The trigger condition for post-hoc evaluators (currently: MAST
+    classification). Errored-out gating evaluators don't count as a
+    failure here — if we don't know whether the run passed, classifying
+    against a failure taxonomy is misleading.
+    """
+    for v in verdicts:
+        if not _is_gating(v["evaluator_id"]):
+            continue
+        if v.get("error"):
+            continue
+        score = v.get("score")
+        if isinstance(score, (int, float)) and score == 0:
+            return True
+    return False
+
+
+def _run_posthoc_evaluators(
+    client: Any,
+    verdicts: list[dict[str, Any]],
+    spans: list[dict[str, Any]],
+    scenario: dict[str, Any],
+    session_id: str,
+    trace_id: str,
+) -> list[dict[str, Any]]:
+    """Fire post-hoc evaluators (MAST classification) iff the run failed.
+
+    Returns the new verdicts to append to the run's verdict list. Empty
+    list on passing runs — that's the no-classify-on-pass discipline
+    from §3.5 (MAST classifies failures only).
+    """
+    if not _any_gating_failure(verdicts):
+        log.info("All gating evaluators non-zero — skipping post-hoc classifiers.")
+        return []
+    log.info("Gating failure detected — running %d post-hoc evaluator(s)…", len(POSTHOC_EVALUATORS))
+    out: list[dict[str, Any]] = []
+    for eid, level in POSTHOC_EVALUATORS:
+        log.info("  → %s (%s, post-hoc)", eid, level)
+        v = _call_evaluate(client, eid, level, spans, scenario, session_id, trace_id)
+        v["posthoc"] = True
+        out.append(v)
+    return out
 
 
 def _summarize(verdicts: list[dict[str, Any]], scenario: dict[str, Any]) -> int:
@@ -324,10 +387,17 @@ def _summarize(verdicts: list[dict[str, Any]], scenario: dict[str, Any]) -> int:
     print("-" * 120)
     failing_gate = 0
     errored = 0
+    has_posthoc = False
     for v in verdicts:
         eid = v["evaluator_id"]
         level = v["level"]
-        gate_mark = "*" if _is_gating(eid) else " "
+        if v.get("posthoc"):
+            gate_mark = "†"
+            has_posthoc = True
+        elif _is_gating(eid):
+            gate_mark = "*"
+        else:
+            gate_mark = " "
         if v.get("error"):
             errored += 1
             msg = (v.get("error_message") or v["error"])[:70]
@@ -342,6 +412,8 @@ def _summarize(verdicts: list[dict[str, Any]], scenario: dict[str, Any]) -> int:
             failing_gate += 1
     print()
     print(" * = gating evaluator (scenario's written assertions)")
+    if has_posthoc:
+        print(" † = post-hoc classifier (fired because at least one gating evaluator scored 0)")
     if errored and errored == len(verdicts):
         log.error("Every evaluator errored.")
         return 8
@@ -410,6 +482,12 @@ def main(argv: list[str] | None = None) -> int:
         verdicts.append(
             _call_evaluate(eval_client, eid, level, spans, scenario, result["session_id"], trace_id)
         )
+
+    verdicts.extend(
+        _run_posthoc_evaluators(
+            eval_client, verdicts, spans, scenario, result["session_id"], trace_id
+        )
+    )
 
     out_path = _write_run_json(
         args.scenario,
