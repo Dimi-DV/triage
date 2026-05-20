@@ -1,0 +1,91 @@
+# AgentCore Evaluations — outage corpus scenario 05.
+#
+# Schema: .claude/skills/add-outage-scenario/SKILL.md §"Always".
+# Paired with: terraform/overlays/subnet-blackhole/
+
+name: subnet-blackhole
+type: fis
+alarm_payload_type: unhealthy_host_count
+alarm_name: dev-triage-subnet-victim-tg-unhealthy
+target_resource: dev-triage-subnet-victim-tg
+runbook_status: shipped
+description: >
+  AWS FIS injects `aws:network:disrupt-connectivity` with `scope=all`
+  against a single private subnet for 5 minutes — total subnet
+  blackhole (no traffic in or out). The victim ECS service is pinned
+  to that single subnet (network_configuration.subnets is a one-element
+  list), so all its tasks lose connectivity simultaneously and no AZ
+  asymmetry exists to compare against. UnHealthyHostCount rises to the
+  full task count; the alarm fires. The diagnostic signature is
+  uniform — all targets are in the same subnet CIDR, all unhealthy,
+  no healthy peers — distinct from 03 az-slowdown's asymmetric multi-
+  AZ pattern. The task definition itself is correctly configured, so
+  the cause is not at the application layer. Container logs are silent
+  during the blackhole because the disrupted subnet has no network
+  egress to CloudWatch — the silence is itself supporting evidence.
+
+reference_answer: >
+  ALB target group dev-triage-subnet-victim-tg has unhealthy targets
+  because the single private subnet hosting the victim service is
+  unreachable (subnet-scoped network blackhole). All registered
+  targets share one subnet CIDR (the dedicated victim subnet created
+  by the overlay, 10.0.30.0/24 in us-east-1b); there are no healthy
+  targets in any other subnet to
+  compare against — the service is single-subnet by design.
+  describe_target_health shows all targets unhealthy with timeout /
+  failed-health-check reasons; describe_task_definition shows the
+  task is correctly configured (port mapping aligned, command is the
+  standard nginx entrypoint with a sed rewrite for port 8080, no
+  missing env vars), ruling out the application layer. Container
+  logs from the period during the blackhole are absent or sparse —
+  the disrupted subnet has lost its CloudWatch Logs egress path, so
+  the silence is part of the witness, not a missing tool result. The
+  correct diagnosis names the subnet-scoped scope of the event —
+  every target sits in one subnet and is unreachable from the ALB,
+  no AZ asymmetry exists because the service is single-AZ. The
+  underlying trigger could be a chaos experiment, a NACL change, a
+  route table modification, or an AWS Health AZ event — the agent's
+  job is to identify the topological scope (single subnet, all
+  targets affected) from observable symptoms, not to name the
+  specific trigger. Remediation suggestions: check the subnet's NACL
+  and route table for recent changes, check AWS Health for AZ-level
+  events on us-east-1b, and consider expanding the service to multi-
+  AZ to survive single-subnet failures. The live MCP service is
+  unaffected — this is isolated to the sidekick service from the
+  subnet-blackhole overlay.
+
+behavioral_assertions:
+  - "Agent identifies the unhealthy target group by name (dev-triage-subnet-victim-tg) from the alarm payload."
+  - "Agent calls ecs_api_describe_target_health and observes that all registered targets are unhealthy and share one subnet CIDR (10.0.30.0/24) — uniform failure, no AZ asymmetry to compare."
+  - "Agent calls ecs_api_describe_task_definition and observes the task definition is correctly configured (port mapping aligned, command is the standard nginx entrypoint with a sed rewrite for port 8080, no missing env vars, health-check block well-formed). The null result is part of the reasoning chain — it rules out the app-layer causes of 01 / 02."
+  - "Agent's diagnosis identifies the subnet-scoped scope of the event — naming the impacted subnet (10.0.30.0/24, us-east-1b, or 'the single private subnet hosting this service') rather than misdiagnosing as application failure or as the AZ-asymmetric pattern of scenario 03."
+  - "Agent does not require log evidence to reach the diagnosis — logs are expected to be empty or sparse during the blackhole because the subnet has no CloudWatch egress. If logs_api_filter_log_events returns empty, the agent treats that as expected (consistent with subnet blackhole) rather than as a tool failure."
+  - "Agent does not propose a remediation that touches the live MCP service or the stack's primary target group (dev-triage-app-tg)."
+  - "Agent does not fabricate metric datapoints; if metrics_api_get_metric_statistics returns empty datapoints, the diagnosis says so."
+  - "Agent's severity is 'warning' or 'critical' (not 'info') — a single-AZ service being fully unreachable is a real outage signal."
+
+expected_tool_sequence:
+  - runbooks_api_lookup_runbook
+  - ecs_api_describe_target_health
+  - ecs_api_describe_task_definition
+  - logs_api_filter_log_events
+  - runbooks_api_post_to_slack
+
+correct_remediation: null
+
+# Predicted dominant MAST failure mode if the agent fails this scenario.
+# FM-2.6 Reasoning-Action Mismatch: the most-likely failure is the
+# agent applying scenario 03's "find the asymmetric AZ" runbook by
+# default, failing to find an asymmetry (there isn't one), and either
+# concluding "no AZ-scoped event" (false negative) or fabricating one
+# by reading too much into noise. The correct diagnosis requires
+# recognizing that uniform single-subnet failure is a structurally
+# different shape from 03's multi-AZ asymmetry — and that absence of
+# asymmetry doesn't mean absence of a network event.
+mast_baseline_hypothesis: FM-2.6
+
+comparable_baseline: >
+  AIOpsLab DeathStarBench network-partition family (single-zone
+  variant) + ITBench v2 infrastructure-event subset. STRATUS GPT-4o
+  reports 69.2% AIOpsLab mitigation overall; per-scenario single-
+  subnet blackhole numbers are not separately published.
