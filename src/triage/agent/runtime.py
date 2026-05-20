@@ -46,7 +46,7 @@ log = logging.getLogger(__name__)
 _MODEL_ID_ENV = "BEDROCK_MODEL_ID"
 _GATEWAY_URL_ENV = "TRIAGE_GATEWAY_URL"
 _GATEWAY_SERVICE = "bedrock-agentcore"
-_MAX_TURNS = 6
+_MAX_TURNS = 12
 
 # Common attributes carried on every span so AgentCore's Evaluate adapter
 # recognizes them as a single Strands-instrumented session. See
