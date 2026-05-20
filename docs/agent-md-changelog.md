@@ -120,6 +120,32 @@ The git log is the authoritative line-level diff; this file is the *why* and the
 
 ---
 
+## v5 — 2026-05-20 (Day 36 Hour 17, scenario 06)
+
+**Commit:** (this commit) — Day 36 Hour 17: scenario 06 — rds-reboot
+
+**Motivation:** Scenario 06 (`rds-reboot`, FIS dependency chaos) first run scored **NoMatch (0.0)** on the gating diagnosis judge — `docs/eval-results/runs/06-rds-reboot/2026-05-20T19-25-32Z-eval-f1d36a91-61ec-407b-accb-33200dfdaf01.json`. The agent saw all targets currently healthy (the sticky degraded window had just expired before the eval started, ~T+150s after FIS trigger), filtered logs with `?ERROR ?WARN ?unhealthy ?failed ?timeout` against the recent 10-minute window, got 0 matches (the actual error log line was `DB unreachable: TimeoutError: timed out` — CloudWatch filter terms are case-sensitive so `?timeout` didn't match `TimeoutError`), then queried unfiltered with `limit=50` and got 50 of the post-recovery `DB heartbeat OK` lines without ever reaching the past disruption window. The agent **never called `describe_task_definition`** — the existing trigger was gated on "any unhealthy target where cause isn't in reason," which didn't fire when targets were currently healthy. Without the task def, the agent never learned the health endpoint hits `$DB_HOST` and missed the dependency-failure shape entirely. Concluded "transient health check failure that self-resolved." MAST post-hoc classifier: FM-3.3 (Incorrect Verification).
+
+**Change summary:** Strengthened the existing **"Alarm fired but current state looks recovered / transient"** branch under investigation flow step 4. Was: "Rule out configuration with `describe_task_definition`, then check logs over a window covering the alarm's evaluation period." Now mandates all three of:
+
+1. **`describe_task_definition` is required** for this branch (not optional / not gated on per-target unhealthiness). The cause may live in wiring the current target state can't reveal — env vars, secret refs, container command, dependency endpoints.
+2. **Log window anchored on `StateChangeTime` ± 2min**, not current time. Tight, past-anchored window — the disruption is in the past by definition for the recovered-alarm branch.
+3. **Broad filter vocabulary** beyond `?ERROR ?WARN` — include `?unreachable ?refused ?timeout ?Timeout ?Error ?Exception ?failed`. CloudWatch filter terms are case-sensitive and word-bounded; if a filter returns zero events, try a broader pattern OR an unfiltered query with a tight window.
+
+Paired runbook change: `runbooks/rds-reboot.md` Prerequisites now explicitly distinguishes "Live disruption" from "Recovered alarm" and adds a Step 1b for the recovered-alarm branch (log window anchored on `StateChangeTime`).
+
+**Validation:** Scenario 06 v2 — `docs/eval-results/runs/06-rds-reboot/2026-05-20T19-36-03Z-eval-04887751-6e54-45ba-addb-cf3c5c0a88bb.json` — diagnosis judge **Match (2.0)** (up from NoMatch 0.0 on v1). GoalSuccessRate also flipped to 1.0. The agent's trajectory now includes `describe_task_definition` (which it skipped in v1), saw the `DB_HOST` env wiring + the Python health server's TCP-connect-to-RDS pattern, queried logs anchored on the alarm window, and named the dependency-layer failure correctly.
+
+**Risk:** Three vectors:
+
+1. Other scenarios where the alarm is unambiguously "still firing right now" may now over-investigate (calling `describe_task_definition` when target state already pinpoints the cause). Mitigation: the new prescription is scoped to the "recovered / transient" branch — the live-failure branches still gate `describe_task_definition` on "cause isn't in reason." Live-failure scenarios (01/02) re-running should not regress.
+2. The "broad filter vocabulary" list is alarm-class-suggestive (it leans toward dependency/network failure vocabulary). If a new scenario surfaces failures using yet-different vocabulary (e.g., custom application error formats), the suggestion list will need extension. Mitigation: the "if filtered query returns zero events, try broader / unfiltered" escape hatch handles unanticipated vocabulary.
+3. The runbook change for `rds-reboot.md` is scenario-specific (sticky-degraded mode timing) — appropriate per §3.11.1 (alarm-specific facts belong in runbooks). No spillover risk to other alarm classes.
+
+**Runbook check:** 🟢 (general). The strengthened "recovered alarm" branch applies to any service-level alarm whose current state has cleared by the time the agent investigates — a common production pattern, not specific to RDS reboot. The runbook addition (rds-reboot.md Step 1b) carries the alarm-specific timing detail (sticky degraded window).
+
+---
+
 ## Change-control rule
 
 Going forward (codified in `CLAUDE.md` "Hard rules" and the spec at `docs/architecture-references/triage-decision-doc-v3.md` §3.11):

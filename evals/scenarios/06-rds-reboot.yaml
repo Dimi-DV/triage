@@ -1,0 +1,95 @@
+# AgentCore Evaluations — outage corpus scenario 06.
+#
+# Schema: .claude/skills/add-outage-scenario/SKILL.md §"Always".
+# Paired with: terraform/overlays/rds-reboot/
+
+name: rds-reboot
+type: fis
+alarm_payload_type: unhealthy_host_count
+alarm_name: dev-triage-rds-victim-tg-unhealthy
+target_resource: dev-triage-rds-victim-tg
+runbook_status: shipped
+description: >
+  AWS FIS injects `aws:rds:reboot-db-instances` with forceFailover=true
+  against the stack RDS instance (dev-triage-db). RDS fails over from
+  primary to standby AZ; during the ~60-120s window, all DB
+  connections fail. The victim ECS service runs a Python HTTP server
+  whose ALB health endpoint opens a TCP connection to RDS on every
+  probe — 200 when reachable, 503 with `DB unreachable: <exception>`
+  when not. UnHealthyHostCount fires on the victim TG. The targets
+  are reachable (the ALB gets responses) but failing health checks
+  with non-200 — distinct from network-layer scenarios (03/05) where
+  targets time out, and distinct from orchestrator scenarios (04)
+  where targets vanish/restart. The task definition shows the
+  health endpoint is gated on DB_HOST; container logs carry explicit
+  `DB unreachable` lines during the reboot — the load-bearing
+  evidence.
+
+reference_answer: >
+  ALB target group dev-triage-rds-victim-tg has unhealthy targets
+  because the victim service's database dependency (the stack RDS
+  instance dev-triage-db) is rebooting / failing over to its
+  standby AZ. The victim service itself is healthy at the network
+  and application layer — its targets are reachable, the ALB
+  successfully connects to them on port 8080, and the health
+  endpoint responds — but the response is HTTP 503 with body
+  `DB unreachable: <exception class>: <exception message>` because
+  the Python health handler opens a TCP connection to RDS on every
+  probe and that connection fails during the reboot window. The
+  load-bearing evidence: (a) describe_target_health shows targets
+  unhealthy with reasons like `Target.FailedHealthChecks` (got a
+  response, but non-200) rather than `Target.Timeout` (no response,
+  which would indicate a network event); (b) describe_task_definition
+  shows the container command runs a Python health server that
+  hits `$DB_HOST:$DB_PORT` (read from environment) on every GET —
+  the health check is gated on RDS reachability; (c) container
+  logs (`/ecs/dev-triage-rds-victim`) contain `DB unreachable:
+  <error>` lines timestamped within the reboot window. The
+  correct diagnosis names the symptom at the dependency layer —
+  this is NOT a network-scoped event (the agent should not name
+  the victim's subnet or AZ as the cause; the victim is fine), and
+  it is NOT an application config issue (the task definition is
+  correctly configured — the dependency is just unavailable).
+  Remediation: check RDS events (`aws rds describe-events`) to
+  confirm the failover and ETA to recovery; wait for the
+  primary/standby flip to complete; no action on the victim
+  service itself — it will recover automatically when RDS is back.
+  The live MCP service is unaffected — verified to not depend on
+  RDS in terraform/stack/mcp_server.tf.
+
+behavioral_assertions:
+  - "Agent identifies the unhealthy target group by name (dev-triage-rds-victim-tg) from the alarm payload."
+  - "Agent calls ecs_api_describe_target_health and observes that targets are unhealthy with `Target.FailedHealthChecks` (or similar response-received-but-non-200 reason) — NOT `Target.Timeout`. This is the key signal that targets are reachable but the health endpoint is failing, not a network-layer event."
+  - "Agent calls ecs_api_describe_task_definition and observes the container command runs a Python health server that hits `$DB_HOST:$DB_PORT` from the environment block. The agent's diagnosis cites the DB dependency wiring (env var name + the fact that health checks the DB)."
+  - "Agent calls logs_api_filter_log_events against the victim service's log group (/ecs/dev-triage-rds-victim) and surfaces `DB unreachable` lines from the health-server container. This is the load-bearing tool call for confirming the dependency-layer hypothesis."
+  - "Agent's diagnosis names the dependency layer — the victim service is healthy at the network and application layer, but its database dependency (RDS) is unavailable. The diagnosis should NOT misattribute to a network event, an application config issue, or an AZ-scoped problem."
+  - "Agent's diagnosis cites at least one concrete piece of log evidence (a quoted `DB unreachable` line, an exception class like `TimeoutError` or `ConnectionRefusedError`, or an explicit observation of the recurring DB-error pattern)."
+  - "Agent does not propose a remediation that touches the victim service itself (restart, redeploy, scale). The victim is healthy; the fix lives at the dependency."
+  - "Agent does not propose a remediation that touches the live MCP service or the stack's primary target group (dev-triage-app-tg)."
+  - "Agent's severity is 'warning' or 'critical' (not 'info') — a dependency outage that takes the service down is a real availability signal."
+
+expected_tool_sequence:
+  - runbooks_api_lookup_runbook
+  - ecs_api_describe_target_health
+  - ecs_api_describe_task_definition
+  - logs_api_filter_log_events
+  - runbooks_api_post_to_slack
+
+correct_remediation: null
+
+# Predicted dominant MAST failure mode if the agent fails this scenario.
+# FM-3.3 Incorrect Verification: most-likely failure is the agent
+# concluding "targets unhealthy, alarm fired" and posting to Slack
+# without checking the task definition or logs — and therefore
+# misattributing the failure to the victim service rather than to
+# its database dependency. The diagnostic distinction "target
+# reachable but failing health checks" (dependency layer) vs
+# "target unreachable" (network layer) hinges on actually reading
+# the `Target.Reason` field and the health-server logs.
+mast_baseline_hypothesis: FM-3.3
+
+comparable_baseline: >
+  ITBench v2 dependency-failure family + AIOpsLab DeathStarBench
+  database-outage subset. STRATUS GPT-4o reports 69.2% AIOpsLab
+  mitigation overall; per-scenario RDS-reboot numbers are not
+  separately published.

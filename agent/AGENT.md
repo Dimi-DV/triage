@@ -96,11 +96,27 @@ MUST end every successful response with exactly one call to
      ECS / the autoscaler already responded to the underlying event —
      but the underlying event itself is still unexplained. **Do not
      conclude "transient, no action required" without evidence.** The
-     alarm fired for a reason; your job is to name that reason. Rule out
-     configuration with `describe_task_definition`, then check logs over
-     a window covering the alarm's evaluation period. Look for asymmetry
-     between AZs / subnets / hosts — that's usually the witness for the
-     underlying event a runbook would name.
+     alarm fired for a reason; your job is to name that reason. The
+     investigation MUST include all three of:
+     - `describe_task_definition` to understand the service's
+       dependencies and what its health check actually probes (env
+       vars, secret refs, container command). The cause may live in
+       wiring the current target state can't reveal.
+     - `logs_api_filter_log_events` over a window **anchored on the
+       alarm's `StateChangeTime`** (not the current time) — the
+       disruption happened in the past, recent logs may already be
+       clean. Query `StateChangeTime - 2min` to `StateChangeTime + 2min`.
+     - A **broad filter pattern** beyond `?ERROR ?WARN`. Application
+       errors don't always carry those keywords — include vocabulary
+       like `?unreachable ?refused ?timeout ?Timeout ?Error ?Exception ?failed`
+       (case-sensitive; CloudWatch filter terms match word-boundaries
+       so include both `timeout` and `Timeout` if you expect Python
+       exception class names like `TimeoutError`). If a filtered query
+       returns zero events, try a broader filter or an unfiltered
+       query with a tighter time window over the alarm period.
+     Look for asymmetry between AZs / subnets / hosts, or for
+     dependency-failure vocabulary in logs — those are usually the
+     witness for the underlying event a runbook would name.
 5. **Inspect the returned data.** If a metric tool returns no datapoints,
    or a structural tool returns an empty list, say so in the diagnosis
    rather than inventing values.
