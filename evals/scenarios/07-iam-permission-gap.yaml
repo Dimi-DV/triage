@@ -1,0 +1,85 @@
+# AgentCore Evaluations — outage corpus scenario 07.
+#
+# Schema: .claude/skills/add-outage-scenario/SKILL.md §"Always".
+# Paired with: terraform/overlays/iam-permission-gap/
+# RUNBOOK-LESS BY DESIGN (spec §3.11.2) — tests AGENT.md generalization.
+
+name: iam-permission-gap
+type: overlay
+alarm_payload_type: unhealthy_host_count
+alarm_name: dev-triage-iam-victim-tg-unhealthy
+target_resource: dev-triage-iam-victim-tg
+runbook_status: by_design_none
+description: >
+  Sidekick ECS service runs a Python HTTP server that calls
+  s3:HeadBucket against the stack audit bucket at startup via boto3.
+  The task role attached to the task (separate from the execution
+  role) is deliberately gimped — trust policy allows ecs-tasks to
+  assume, no permissions attached — so the call fails with
+  AccessDenied. The startup error is printed to stdout (carrying the
+  assumed-role ARN, the action name s3:ListBucket / HeadBucket, and
+  the resource), and cached. Every ALB health probe thereafter
+  returns 503 with the cached error message. UnHealthyHostCount
+  fires. The agent must diagnose without a runbook — it falls back
+  to AGENT.md general principles: read describe_task_definition to
+  see the task_role_arn and the container command's boto3+S3
+  dependency, then read logs to surface the verbatim AccessDenied
+  error, then name the missing permission + role.
+
+reference_answer: >
+  ALB target group dev-triage-iam-victim-tg has unhealthy targets
+  because the victim service's task role lacks permission to perform
+  the AWS API call its startup code makes. Specifically: the task
+  role (visible in describe_task_definition as `task_role_arn`,
+  e.g. arn:aws:iam::042729137214:role/dev-triage-iam-victim-task-role)
+  has no IAM policy permissions attached, while the container's
+  Python boto3 code calls `s3.head_bucket(Bucket=$AUDIT_BUCKET)` at
+  startup. The call returns AccessDenied; the error message
+  (visible in container logs) names the assumed-role principal,
+  the denied action (s3:ListBucket via HeadBucket), and the resource.
+  The application caches the IAM failure at startup and returns 503
+  on every health probe with the cached error in the response body —
+  so ALB sees the targets as unhealthy with reason
+  `Target.FailedHealthChecks` (response received, non-200). The
+  task definition itself is correctly wired (port mapping, command,
+  environment, log group all look fine); the cause is at the IAM
+  layer, not the application layer. Remediation: attach an IAM
+  policy to the task role that allows the missing action on the
+  required resource — e.g. `s3:ListBucket` (which HeadBucket maps
+  to) on the audit bucket ARN. The live MCP service is unaffected.
+
+behavioral_assertions:
+  - "Agent identifies the unhealthy target group by name (dev-triage-iam-victim-tg) from the alarm payload."
+  - "Agent calls runbooks_api_lookup_runbook for this alarm name and observes `found: false` — there is no runbook for this alarm class. Per AGENT.md step 2, the agent falls back to general principles, NOT to 'nothing to investigate.'"
+  - "Agent calls ecs_api_describe_target_health and observes targets with `Target.FailedHealthChecks` (got a response, but non-200) — distinguishing this from network-layer failures where targets would be `Target.Timeout`."
+  - "Agent calls ecs_api_describe_task_definition and reads the `task_role_arn`, the container command (which references boto3 and S3), and the environment block. The diagnosis identifies the dependency wiring — i.e., the agent understands the health check is gated on an AWS API call, not just port connectivity."
+  - "Agent calls logs_api_filter_log_events and surfaces the verbatim AccessDenied error message — including the role ARN and the action name. The diagnosis must name the specific action (s3:ListBucket, s3:HeadBucket, or s3:GetObject — whatever the boto3 call resolves to) and the specific role ARN, not a generic 'permission issue.'"
+  - "Agent's diagnosis identifies the IAM layer as the cause. It does NOT misattribute to the application layer (the code is correct), a network event (targets ARE reachable), or a configuration issue (the task def is well-formed except for the role's missing policy)."
+  - "Agent's recommended remediation suggests attaching the missing permission to the task role — not restarting the service, not changing the application code, not modifying the bucket policy."
+  - "Agent does not propose a remediation that touches the live MCP service or the stack's primary target group (dev-triage-app-tg)."
+  - "Agent's severity is 'warning' or 'critical' (not 'info') — a complete service outage from IAM misconfig is a real availability signal."
+
+expected_tool_sequence:
+  - runbooks_api_lookup_runbook
+  - ecs_api_describe_target_health
+  - ecs_api_describe_task_definition
+  - logs_api_filter_log_events
+  - runbooks_api_post_to_slack
+
+correct_remediation: null
+
+# Predicted dominant MAST failure mode if the agent fails this scenario.
+# FM-3.3 Incorrect Verification: the most-likely failure mode is the
+# agent observing "targets unhealthy" + "no runbook found" and
+# concluding "unknown cause, escalate" without doing the work of
+# reading the task def to see the boto3+S3 wiring AND reading the
+# logs to find the AccessDenied line. The diagnostic chain here is
+# the SAME chain the runbook-scaffolded scenarios use — read task
+# def, read logs, follow the evidence — the test is whether the
+# agent runs that chain unprompted when no runbook is found.
+mast_baseline_hypothesis: FM-3.3
+
+comparable_baseline: >
+  ITBench v2 misconfigured-permissions subset + AIOpsLab IAM-error
+  family. STRATUS GPT-4o reports ~50% mitigation on ITBench SRE
+  overall; IAM-gap-specific scores are not separately published.
