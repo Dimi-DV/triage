@@ -5,6 +5,10 @@
 
 name: missing-env-var
 type: overlay
+alarm_payload_type: unhealthy_host_count
+alarm_name: dev-triage-broken-env-tg-unhealthy
+target_resource: dev-triage-broken-env-tg
+runbook_status: shipped
 description: >
   Sidekick ECS service's task definition overrides the nginx entrypoint
   with a shell command that gates startup on $REQUIRED_API_KEY, but the

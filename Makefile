@@ -107,6 +107,9 @@ eval-scenario: ## Run a single eval scenario (usage: make eval-scenario SCENARIO
 	@if [ -z "$(SCENARIO)" ]; then echo "Usage: make eval-scenario SCENARIO=<name>"; exit 1; fi
 	uv run python evals/run_evals.py --scenario $(SCENARIO)
 
+eval-summary: ## Rebuild docs/eval-results/summary.md from every per-run JSON
+	uv run python evals/summarize_runs.py
+
 # ============================================================
 # Infrastructure (Terraform)
 # ============================================================

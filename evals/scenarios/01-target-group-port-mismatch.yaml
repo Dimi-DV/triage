@@ -5,6 +5,20 @@
 
 name: target-group-port-mismatch
 type: overlay
+# Synthetic-alarm builder: which payload shape `run_evals.py` constructs
+# to invoke the agent. `unhealthy_host_count` builds an ALB
+# UnHealthyHostCount alarm payload from `alarm_name` + `target_resource`.
+alarm_payload_type: unhealthy_host_count
+alarm_name: dev-triage-broken-tg-unhealthy
+# Resource the alarm is scoped to. For unhealthy_host_count this is the
+# target-group name (looked up live via `elbv2.describe_target_groups` so
+# the synthetic dimension carries the real `targetgroup/<name>/<hash>` ARN).
+target_resource: dev-triage-broken-tg
+# Whether this scenario ships with a runbook (per spec §3.11.2).
+#   shipped         — runbook exists under runbooks/<slug>.md
+#   by_design_none  — explicitly no runbook, tests AGENT.md generalization
+#   planned         — runbook will land alongside the scenario
+runbook_status: shipped
 description: >
   Sidekick ECS service runs nginx on port 80; its ALB target group's
   health check probes port 8081. Every probe times out, hosts go

@@ -151,30 +151,34 @@ def _unhealthy_host_payload(alarm_name: str, tg_name: str, region: str) -> dict[
     }
 
 
-# (alarm_name, tg_name) per scenario. ARN lookups happen at run time so the
-# harness picks up overlay re-applies that re-mint TG/LB suffixes.
-_SCENARIO_ALARMS: dict[str, tuple[str, str]] = {
-    "target-group-port-mismatch": (
-        "dev-triage-broken-tg-unhealthy",
-        "dev-triage-broken-tg",
+# Registry of synthetic-alarm builders by `alarm_payload_type`. The scenario
+# YAML names which type to use; the builder reads the rest of its arguments
+# directly from `scenario` (no hardcoded per-scenario map). Add a new entry
+# here when a future scenario needs a different alarm shape.
+_PAYLOAD_BUILDERS: dict[str, Any] = {
+    "unhealthy_host_count": lambda scenario, region: _unhealthy_host_payload(
+        scenario["alarm_name"], scenario["target_resource"], region
     ),
-    "missing-env-var": (
-        "dev-triage-broken-env-tg-unhealthy",
-        "dev-triage-broken-env-tg",
-    ),
-    "az-slowdown": (
-        "dev-triage-az-victim-tg-unhealthy",
-        "dev-triage-az-victim-tg",
-    ),
+    # Add `http_5xx_count`, `ecs_failed_task`, etc. here as future scenarios
+    # need them. Each builder takes (scenario_dict, region) → payload dict.
 }
 
 
 def _synthetic_alarm_for(scenario: dict[str, Any], region: str) -> dict[str, Any]:
-    name = scenario["name"]
-    if name not in _SCENARIO_ALARMS:
-        raise NotImplementedError(f"No synthetic alarm builder for scenario {name!r}")
-    alarm_name, tg_name = _SCENARIO_ALARMS[name]
-    return _unhealthy_host_payload(alarm_name, tg_name, region)
+    """Pick a payload builder by `alarm_payload_type` in the scenario YAML.
+
+    Defaults to `unhealthy_host_count` for backwards compat with scenarios
+    written before the registry existed. Required scenario fields per type
+    are documented in `_PAYLOAD_BUILDERS` and the add-outage-scenario skill.
+    """
+    payload_type = scenario.get("alarm_payload_type", "unhealthy_host_count")
+    builder = _PAYLOAD_BUILDERS.get(payload_type)
+    if builder is None:
+        raise NotImplementedError(
+            f"No payload builder registered for alarm_payload_type "
+            f"{payload_type!r}. Add one to _PAYLOAD_BUILDERS in run_evals.py."
+        )
+    return builder(scenario, region)
 
 
 def _invoke_runtime(

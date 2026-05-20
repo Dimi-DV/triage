@@ -5,6 +5,10 @@
 
 name: az-slowdown
 type: fis
+alarm_payload_type: unhealthy_host_count
+alarm_name: dev-triage-az-victim-tg-unhealthy
+target_resource: dev-triage-az-victim-tg
+runbook_status: shipped
 description: >
   AWS FIS injects `aws:network:disrupt-connectivity` with `scope=all`
   against the AZ-a private subnet for 5 minutes — a total network
