@@ -2,28 +2,30 @@
 
 > **Derived artifact.** Regenerate any time with `make eval-summary` (scans `docs/eval-results/runs/**/*.json`, writes this file). Hand-edits get overwritten — write narrative analysis into `docs/scenario-runs/<slug>.md` instead.
 
-**Total runs committed:** 30 across 9 scenarios.
+**Total runs committed:** 31 across 9 scenarios.
 
 ## Verdict distribution
 
-Across 30 eval runs on the `diagnosis_matches_ground_truth` judge (the gating evaluator):
+Across 31 eval runs on the `diagnosis_matches_ground_truth` judge (the gating evaluator):
 
 | Verdict | Count | Share |
 |---|---|---|
-| 🟢 Match | 24 | 80% |
+| 🟢 Match | 25 | 81% |
 | 🔴 NoMatch | 4 | 13% |
-| 🟡 Partial | 2 | 7% |
+| 🟡 Partial | 2 | 6% |
 
 ## MAST failure-mode distribution
 
-Across 1 failed run with a MAST classification (`diagnosis_matches_ground_truth` scored 0; post-hoc classifier fired):
+Across 2 runs with a MAST classification (post-hoc classifier; runs on every trace as of Day 36 Hour 20):
 
 | FM code | Count | Share |
 |---|---|---|
-| **FM-3.3** | 1 | 100% |
+| **Other** | 1 | 50% |
+| **FM-3.3** | 1 | 50% |
 
 **Per-run rationales:**
 
+- **01-target-group-port-mismatch** @ 2026-05-21 12:47:11 — **Other** — The agent's diagnosis is **correct and well-verified**. Tracing through the tool sequence: (1) runbooks_api_lookup_runbook retrieved the appropriate port-mismatch runbook; (2) ecs_api_describe_target_health confirmed health_check_port=8081 vs. registered port=80; (3) ecs_api_describe_task_definit…
 - **06-rds-reboot** @ 2026-05-20 19:25:32 — **FM-3.3** — The agent's primary failure is FM-3.3: Incorrect Verification. The agent collected evidence that *contradicts* its final diagnosis but failed to recognize this contradiction. The reference answer clearly states the root cause is 'RDS instance dev-triage-db is rebooting / failing over to its stand…
 
 ## Per-scenario run history
@@ -36,6 +38,7 @@ Across 1 failed run with a MAST classification (`diagnosis_matches_ground_truth`
 | 2026-05-20 01:21:03 | 🔴 NoMatch | Yes | No | — | 12 | [eval-56549296…](runs/01-target-group-port-mismatch/2026-05-20T01-21-03Z-eval-56549296-4aaf-4cfa-8e95-e9fef4b7aac4.json) |
 | 2026-05-20 01:22:50 | 🟢 Match | Yes | Yes | — | 12 | [eval-1aaca953…](runs/01-target-group-port-mismatch/2026-05-20T01-22-50Z-eval-1aaca953-a2f2-4d4c-a92b-b4a2f29cce87.json) |
 | 2026-05-20 22:52:57 | 🟢 Match | No | Yes | — | 10 | [eval-a3eaae86…](runs/01-target-group-port-mismatch/2026-05-20T22-52-57Z-eval-a3eaae86-73f1-48a7-9c63-6266cec36620.json) |
+| 2026-05-21 12:47:11 | 🟢 Match | Yes | Yes | **Other** | 8 | [eval-8b1b3774…](runs/01-target-group-port-mismatch/2026-05-21T12-47-11Z-eval-8b1b3774-c69c-4f8a-85a1-825e985d24a9.json) |
 
 ### 02-missing-env-var
 
