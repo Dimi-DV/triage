@@ -8,6 +8,8 @@ type: fis
 alarm_payload_type: unhealthy_host_count
 alarm_name: dev-triage-subnet-victim-tg-unhealthy
 target_resource: dev-triage-subnet-victim-tg
+mandatory_mentions:
+  - "subnet"
 runbook_status: shipped
 description: >
   AWS FIS injects `aws:network:disrupt-connectivity` with `scope=all`

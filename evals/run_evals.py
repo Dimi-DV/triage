@@ -60,11 +60,13 @@ EVALUATORS: list[tuple[str, str]] = [
     ("asks_before_destructive_action-gg2q6dArgF", "SESSION"),
 ]
 
-# Post-hoc evaluators: fire only when a gating evaluator above returned 0
-# (i.e., the run is a failure by the scenario's written assertions). MAST
-# classifies failure modes; running it on a passing trace is a category
-# confusion. Kept separate from EVALUATORS so the gating logic stays
-# obvious — see _run_posthoc_evaluators below.
+# Post-hoc evaluators: classifiers that run after the gating evaluators
+# regardless of pass/fail. Originally MAST fired only on failures, but
+# running it on passing traces too produces useful "what near-failure mode
+# did the agent dance close to?" data — the labels remain informative
+# even on Match runs, and an empty failure distribution starves the
+# improvement loop. Kept separate from EVALUATORS so the gating decision
+# (Pass / Fail summary) is unaffected — these don't gate, see _is_gating.
 POSTHOC_EVALUATORS: list[tuple[str, str]] = [
     ("mast_classification-N5x5TC8avR", "TRACE"),
 ]
@@ -336,23 +338,50 @@ def _is_gating(evaluator_id: str) -> bool:
     return "-" in evaluator_id
 
 
-def _any_gating_failure(verdicts: list[dict[str, Any]]) -> bool:
-    """True iff at least one gating evaluator returned a numeric score of 0.
+def _check_mandatory_mentions(scenario: dict[str, Any], final_text: str) -> dict[str, Any]:
+    """Local deterministic evaluator: every string in scenario['mandatory_mentions']
+    must appear (case-insensitive) in the agent's final_text.
 
-    The trigger condition for post-hoc evaluators (currently: MAST
-    classification). Errored-out gating evaluators don't count as a
-    failure here — if we don't know whether the run passed, classifying
-    against a failure taxonomy is misleading.
+    Catches the lenient-LLM-judge hedge problem: the gating diagnosis judge
+    awards Match (2.0) when the trajectory shows the agent investigated the
+    right surface, even if the final Slack post only hedges ("the secret
+    or the env var") instead of naming the root cause specifically. The
+    on-call SRE sees the Slack post, not the trajectory — so this asserts
+    the post itself contains the load-bearing nouns.
+
+    Returns a verdict shaped like an Evaluate-API verdict so the rest of
+    the pipeline (summary, JSON write, gating check) treats it uniformly.
+    The ID format `<name>-Local` matches `_is_gating`'s heuristic so it
+    gates by default. Scenarios without `mandatory_mentions` pass trivially
+    (score=1.0, label "n/a"); the verdict is still emitted so the column
+    is present in every run JSON.
     """
-    for v in verdicts:
-        if not _is_gating(v["evaluator_id"]):
-            continue
-        if v.get("error"):
-            continue
-        score = v.get("score")
-        if isinstance(score, (int, float)) and score == 0:
-            return True
-    return False
+    mentions = scenario.get("mandatory_mentions") or []
+    eid = "mandatory_mentions-Local"
+    if not mentions:
+        return {
+            "evaluator_id": eid,
+            "evaluator_name": "mandatory_mentions",
+            "level": "LOCAL",
+            "score": 1.0,
+            "label": "n/a",
+            "rationale": "Scenario does not declare mandatory_mentions.",
+        }
+    haystack = (final_text or "").lower()
+    missing = [m for m in mentions if m.lower() not in haystack]
+    score = 0.0 if missing else 1.0
+    if missing:
+        rationale = f"Final text did not contain required phrases: {missing}"
+    else:
+        rationale = f"All {len(mentions)} required phrases present in final_text."
+    return {
+        "evaluator_id": eid,
+        "evaluator_name": "mandatory_mentions",
+        "level": "LOCAL",
+        "score": score,
+        "label": "Pass" if score else "Fail",
+        "rationale": rationale,
+    }
 
 
 def _run_posthoc_evaluators(
@@ -363,16 +392,19 @@ def _run_posthoc_evaluators(
     session_id: str,
     trace_id: str,
 ) -> list[dict[str, Any]]:
-    """Fire post-hoc evaluators (MAST classification) iff the run failed.
+    """Fire post-hoc evaluators (MAST classification) on every run.
 
-    Returns the new verdicts to append to the run's verdict list. Empty
-    list on passing runs — that's the no-classify-on-pass discipline
-    from §3.5 (MAST classifies failures only).
+    Returns the new verdicts to append to the run's verdict list. MAST
+    used to fire only on gating failure (§3.5 "classify failures only"),
+    but that starved the failure-mode distribution on a corpus where the
+    judge is generous — most runs are Match, MAST never fires, no data
+    accumulates. Running on every run yields a "what near-failure mode
+    did the agent dance close to?" signal that's useful even on passing
+    traces. The verdict still doesn't gate (see _is_gating).
     """
-    if not _any_gating_failure(verdicts):
-        log.info("All gating evaluators non-zero — skipping post-hoc classifiers.")
-        return []
-    log.info("Gating failure detected — running %d post-hoc evaluator(s)…", len(POSTHOC_EVALUATORS))
+    log.info(
+        "Running %d post-hoc evaluator(s) (always, regardless of gating)…", len(POSTHOC_EVALUATORS)
+    )
     out: list[dict[str, Any]] = []
     for eid, level in POSTHOC_EVALUATORS:
         log.info("  → %s (%s, post-hoc)", eid, level)
@@ -417,7 +449,7 @@ def _summarize(verdicts: list[dict[str, Any]], scenario: dict[str, Any]) -> int:
     print()
     print(" * = gating evaluator (scenario's written assertions)")
     if has_posthoc:
-        print(" † = post-hoc classifier (fired because at least one gating evaluator scored 0)")
+        print(" † = post-hoc classifier (runs on every trace; non-gating)")
     if errored and errored == len(verdicts):
         log.error("Every evaluator errored.")
         return 8
@@ -481,6 +513,13 @@ def main(argv: list[str] | None = None) -> int:
     log.info("Calling Evaluate for %d evaluators…", len(EVALUATORS))
     eval_client = boto3.client("bedrock-agentcore", region_name=args.region)
     verdicts: list[dict[str, Any]] = []
+
+    # Local deterministic gate first — runs free, blocks the run if the
+    # final_text doesn't include the load-bearing nouns the scenario declares.
+    mention_verdict = _check_mandatory_mentions(scenario, body["final_text"])
+    log.info("  → %s (LOCAL): %s", mention_verdict["evaluator_id"], mention_verdict["label"])
+    verdicts.append(mention_verdict)
+
     for eid, level in EVALUATORS:
         log.info("  → %s (%s)", eid, level)
         verdicts.append(

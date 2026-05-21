@@ -8,6 +8,8 @@ type: fis
 alarm_payload_type: unhealthy_host_count
 alarm_name: dev-triage-rds-victim-tg-unhealthy
 target_resource: dev-triage-rds-victim-tg
+mandatory_mentions:
+  - "RDS"
 runbook_status: shipped
 description: >
   AWS FIS injects `aws:rds:reboot-db-instances` with forceFailover=true

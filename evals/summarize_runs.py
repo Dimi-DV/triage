@@ -128,17 +128,16 @@ def _fm_distribution(rows: list[dict[str, Any]]) -> str:
     labeled = [r for r in rows if r["mast_label"]]
     if not labeled:
         return (
-            "_No MAST classifications recorded yet. MAST fires only on failed runs "
-            "(diagnosis judge score 0); historical failures pre-dating the MAST "
-            "wiring (Day 36 Hour 13) are not backfilled by design — only "
-            "post-wiring failures get classified._\n"
+            "_No MAST classifications recorded yet. MAST is wired as a post-hoc "
+            "classifier that runs on every trace; historical runs pre-dating the "
+            "MAST wiring (Day 36 Hour 13) are not backfilled by design._\n"
         )
     counts = collections.Counter(r["mast_label"] for r in labeled)
     total = sum(counts.values())
     lines = [
-        f"Across {total} failed run{'s' if total != 1 else ''} with a MAST "
-        f"classification (`diagnosis_matches_ground_truth` scored 0; "
-        f"post-hoc classifier fired):",
+        f"Across {total} run{'s' if total != 1 else ''} with a MAST "
+        f"classification (post-hoc classifier; runs on every trace as of "
+        f"Day 36 Hour 20):",
         "",
         "| FM code | Count | Share |",
         "|---|---|---|",

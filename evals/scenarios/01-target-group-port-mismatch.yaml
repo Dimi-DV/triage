@@ -14,6 +14,13 @@ alarm_name: dev-triage-broken-tg-unhealthy
 # target-group name (looked up live via `elbv2.describe_target_groups` so
 # the synthetic dimension carries the real `targetgroup/<name>/<hash>` ARN).
 target_resource: dev-triage-broken-tg
+# Substrings that must appear (case-insensitive) in the agent's final
+# Slack post for the run to gate Pass. The on-call SRE only sees the
+# final text — this asserts the load-bearing root-cause noun is named
+# explicitly, not hedged. See mandatory_mentions-Local evaluator in
+# evals/run_evals.py.
+mandatory_mentions:
+  - "8081"
 # Whether this scenario ships with a runbook (per spec §3.11.2).
 #   shipped         — runbook exists under runbooks/<slug>.md
 #   by_design_none  — explicitly no runbook, tests AGENT.md generalization

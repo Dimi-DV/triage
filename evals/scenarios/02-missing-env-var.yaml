@@ -8,6 +8,8 @@ type: overlay
 alarm_payload_type: unhealthy_host_count
 alarm_name: dev-triage-broken-env-tg-unhealthy
 target_resource: dev-triage-broken-env-tg
+mandatory_mentions:
+  - "REQUIRED_API_KEY"
 runbook_status: shipped
 description: >
   Sidekick ECS service's task definition overrides the nginx entrypoint

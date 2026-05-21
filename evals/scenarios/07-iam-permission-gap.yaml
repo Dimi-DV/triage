@@ -9,6 +9,8 @@ type: overlay
 alarm_payload_type: unhealthy_host_count
 alarm_name: dev-triage-iam-victim-tg-unhealthy
 target_resource: dev-triage-iam-victim-tg
+mandatory_mentions:
+  - "IAM"
 runbook_status: by_design_none
 description: >
   Sidekick ECS service runs a Python HTTP server that calls

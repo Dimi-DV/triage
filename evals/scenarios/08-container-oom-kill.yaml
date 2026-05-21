@@ -9,6 +9,8 @@ type: overlay
 alarm_payload_type: unhealthy_host_count
 alarm_name: dev-triage-oom-victim-tg-unhealthy
 target_resource: dev-triage-oom-victim-tg
+mandatory_mentions:
+  - "memory"
 runbook_status: by_design_none
 description: >
   Sidekick ECS task with the container's hard memory limit pinned at

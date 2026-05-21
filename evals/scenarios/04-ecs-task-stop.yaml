@@ -8,6 +8,8 @@ type: fis
 alarm_payload_type: unhealthy_host_count
 alarm_name: dev-triage-task-stop-victim-tg-unhealthy
 target_resource: dev-triage-task-stop-victim-tg
+mandatory_mentions:
+  - "stop"
 runbook_status: shipped
 description: >
   AWS FIS injects `aws:ecs:stop-task` against all tasks of the sidekick
