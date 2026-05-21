@@ -203,6 +203,22 @@ data "aws_iam_policy_document" "agent_runtime" {
     resources = ["*"]
   }
 
+  # Bedrock checks AWS Marketplace subscription state per-model on first
+  # invocation of any model the account hasn't used yet. Without these
+  # actions on the calling role, switching to a newer Anthropic model
+  # (e.g. Sonnet 4.5 → 4.6) fails with AccessDeniedException citing
+  # "aws-marketplace:ViewSubscriptions, aws-marketplace:Subscribe", even
+  # when the model is enabled at the account level. These actions don't
+  # support resource-level perms; "*" is the standard pattern.
+  statement {
+    sid = "BedrockMarketplaceSubscription"
+    actions = [
+      "aws-marketplace:ViewSubscriptions",
+      "aws-marketplace:Subscribe",
+    ]
+    resources = ["*"]
+  }
+
   statement {
     sid       = "PutAuditObjects"
     actions   = ["s3:PutObject"]
