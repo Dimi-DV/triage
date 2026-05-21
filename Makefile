@@ -80,11 +80,13 @@ redeploy-mcp: ## Force ECS to redeploy the MCP service after a new image push
 # AgentCore provisioning (Day 34 evening)
 # ============================================================
 
-provision-agentcore: ## Create / update AgentCore Runtime + Gateway + Identity + Cedar bindings
-	uv run python scripts/provision_agentcore.py
+CEDAR_MODE ?= LOG_ONLY
+
+provision-agentcore: ## Create / update AgentCore Runtime + Gateway + Identity + Cedar bindings (CEDAR_MODE=LOG_ONLY|ENFORCE|OFF, default LOG_ONLY)
+	uv run python scripts/provision_agentcore.py --cedar-mode $(CEDAR_MODE)
 
 provision-agentcore-dry: ## Show what provision_agentcore would do
-	uv run python scripts/provision_agentcore.py --dry-run
+	uv run python scripts/provision_agentcore.py --dry-run --cedar-mode $(CEDAR_MODE)
 
 provision-evaluators: ## Create / update custom LLM-as-judge evaluators + OnlineEvaluationConfig
 	uv run python scripts/provision_evaluators.py

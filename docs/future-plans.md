@@ -18,10 +18,8 @@ Items are grouped by horizon: **near-term** (single-sprint, mostly self-containe
 
 The agent today can diagnose *that* a service was stopped but not *who* stopped it. CloudTrail has `userIdentity.userName`, `eventName: UpdateService`, `requestParameters.desiredCount: 0` for exactly this case. Adding `ecs_api_recent_service_events` (or, more naturally, expanding `logs-api` with a CloudTrail surface as `logs_api_recent_audit_events`) closes the operator-action diagnosis gap surfaced in the Hour 20 "would the agent diagnose a manual stop" thought experiment. IAM bump: `cloudtrail:LookupEvents`. New scenario to validate: "user manually scaled service to 0" — overlay just wraps the symptom; the diagnosis chain is what we're testing.
 
-### N2. Cedar Lambda interceptor (close the spec gap)
-**Effort:** ~1 day. **Depends on:** nothing.
-
-`cedar-policies/` has policy text but no enforcement; the decision doc commits to Cedar gating; the IAM-only gating at the Gateway boundary is coarse. Wire a Lambda interceptor via `CreateGateway`'s `interceptorConfigurations` parameter that loads policies from S3, evaluates with `cedar-policy` Python lib, and returns allow/deny. Adds: per-call audit decision log, fine-grained resource-aware policy ("describe only `dev-triage-*` task definitions"), policy-as-code unit tests. Defense in depth — if IAM is misconfigured, Cedar catches it. Detail in v3 spec; see [docs/architecture-references/triage-decision-doc-v3.md].
+### N2. ~~Cedar Lambda interceptor~~ — SHIPPED 2026-05-21, not via interceptor
+**Status:** Done. The framing here was wrong — Cedar enforcement does not need a Lambda interceptor. `bedrock-agentcore-control.update_gateway` accepts `policyEngineConfiguration={arn, mode}` where the ARN is a managed **AgentCore Policy Engine** (GA 2026-03-03). 6 permit policies + 1 inactive forbid kill-switch now ship under `cedar-policies/`, synced into the engine by `scripts/provision_agentcore.py`, gateway attached in `ENFORCE` mode. Scenario 01 re-validated end-to-end with Cedar enforcing (all 8 gating evaluators green; `TrajectoryInOrderMatch=1.00`). See v3 spec §3.3 (v3.2 amendment) and `docs/adr/0004-cedar-plus-slack-write-gating.md` for what is and isn't expressible in this primitive. The "per-call audit decision log" and "fine-grained resource-aware policy" parts of the original ask did NOT ship and probably won't in this primitive — see the ADR's "Cannot express" list.
 
 ### N3. Negative-test scenario (verify the eval has teeth)
 **Effort:** ~2 hours. **Depends on:** nothing.

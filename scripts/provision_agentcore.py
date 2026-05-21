@@ -24,11 +24,21 @@ Steps:
   4. Create the AgentCore Runtime referencing the agent ECR image.
   5. Write the Runtime ARN to SSM (the Lambda reads it from there).
 
-Deferred for follow-up:
-  - Cedar policy enforcement at the Gateway. The CreateGateway API has no
-    policyEngineConfiguration parameter; Cedar must be wired via a Lambda
-    interceptor on the Gateway, or evaluated at the MCP server boundary.
-    `cedar-policies/agent-tools.cedar` stays in the repo for that work.
+Cedar gating (active 2026-05-21 onward):
+  - `bedrock-agentcore-control.create_gateway` / `update_gateway` accept a
+    `policyEngineConfiguration` block whose `arn` is an *AgentCore Policy
+    Engine* ARN (NOT an AWS Verified Permissions policy store — that ARN
+    shape is rejected by the API, probed 2026-05-21). The earlier note in
+    CLAUDE.md and this docstring claiming the parameter did not exist at
+    all was wrong; the subsequent guess that it consumed Verified
+    Permissions was also wrong. See
+    feedback_cedar_policy_engine_config_lives in memory.
+  - This script creates the policy engine if it doesn't exist (no
+    Terraform resource for it yet), syncs every `cedar-policies/*.cedar`
+    policy into it via `CreatePolicy / UpdatePolicy / DeletePolicy`, then
+    attaches the engine's ARN to the Gateway. `--cedar-mode LOG_ONLY` is
+    the default; flip to `ENFORCE` once the LOG_ONLY smoke confirms the
+    Gateway constructs the principal/action/resource the policies expect.
 
 Idempotency note: where we can detect an existing resource by name we
 reuse it; otherwise we create-and-tolerate-Conflict. The Runtime branch
@@ -57,6 +67,12 @@ from typing import Any
 import boto3
 from botocore.exceptions import ClientError
 
+from triage.shared.cedar_sync import (
+    iam_role_arn_to_sts_assumed_role_arn,
+    load_cedar_policies,
+    sync_cedar_policies,
+)
+
 log = logging.getLogger("provision_agentcore")
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -64,6 +80,8 @@ TERRAFORM_DIR = REPO_ROOT / "terraform" / "stack"
 NAME_PREFIX = "prod-triage"
 GATEWAY_TARGET_NAME = "TriageMcpGateway"
 WORKLOAD_IDENTITY_NAME = "prod-triage-agent"
+CEDAR_POLICY_DIR = REPO_ROOT / "cedar-policies"
+POLICY_ENGINE_NAME = "TriagePolicyEngine"
 
 
 def _tf_outputs() -> dict[str, Any]:
@@ -121,9 +139,11 @@ def _create_gateway(control: Any, role_arn: str) -> tuple[str, str]:
 
     AWS_IAM authorizer: callers sign with SigV4 using their existing IAM
     roles. No authorizerConfiguration block is required (verified against
-    live API shape). The Gateway's create_gateway API has no
-    policyEngineConfiguration parameter — Cedar enforcement at the
-    Gateway must use interceptorConfigurations (Lambda); deferred.
+    live API shape). The Cedar gate is attached separately via
+    `_attach_policy_engine` after the gateway exists, because attaching the
+    policy engine requires its ARN (only known after the script creates the
+    engine on the fly) plus the gateway ARN (needed for policy resource
+    substitution) — both available after this returns.
     """
     log.info("Creating AgentCore Gateway (AWS_IAM authorizer)")
     result = _create_or_reuse(
@@ -183,6 +203,68 @@ def _create_mcp_target(control: Any, gateway_id: str, mcp_url: str) -> None:
             },
         },
         "Gateway target",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Cedar gating (AgentCore Policy Engine)
+# ---------------------------------------------------------------------------
+
+
+def _get_or_create_policy_engine(control: Any) -> tuple[str, str]:
+    """Return (policyEngineId, policyEngineArn) for the Triage policy engine.
+
+    Creates the engine on first run; reuses on subsequent runs by listing and
+    matching on the `POLICY_ENGINE_NAME` literal. No Terraform resource exists
+    for this primitive in AWS provider 5.70 — it's script-managed alongside
+    Gateway and Runtime.
+    """
+    for page in control.get_paginator("list_policy_engines").paginate():
+        for item in page.get("policyEngines", []):
+            if item.get("name") == POLICY_ENGINE_NAME:
+                log.info("Reusing policy engine %s", item["policyEngineId"])
+                return str(item["policyEngineId"]), str(item["policyEngineArn"])
+
+    log.info("Creating AgentCore policy engine %s", POLICY_ENGINE_NAME)
+    result = control.create_policy_engine(
+        name=POLICY_ENGINE_NAME,
+        description="Cedar gate for the Triage agent's AgentCore Gateway.",
+    )
+    return str(result["policyEngineId"]), str(result["policyEngineArn"])
+
+
+def _attach_policy_engine(
+    control: Any,
+    gateway_id: str,
+    role_arn: str,
+    policy_engine_arn: str,
+    mode: str,
+) -> None:
+    """Wire the AgentCore policy engine onto the Gateway.
+
+    update_gateway is full-shape (same family as update_agent_runtime — see
+    feedback_update_agent_runtime_replaces), so we resend every field the
+    create call passed plus the new policyEngineConfiguration block. mode is
+    LOG_ONLY | ENFORCE | OFF. OFF detaches by omitting the block.
+    """
+    if mode == "OFF":
+        log.info("Detaching policy engine from gateway %s (mode=OFF)", gateway_id)
+        control.update_gateway(
+            gatewayIdentifier=gateway_id,
+            name=GATEWAY_TARGET_NAME,
+            roleArn=role_arn,
+            protocolType="MCP",
+            authorizerType="AWS_IAM",
+        )
+        return
+    log.info("Attaching policy engine (mode=%s) → %s", mode, policy_engine_arn)
+    control.update_gateway(
+        gatewayIdentifier=gateway_id,
+        name=GATEWAY_TARGET_NAME,
+        roleArn=role_arn,
+        protocolType="MCP",
+        authorizerType="AWS_IAM",
+        policyEngineConfiguration={"arn": policy_engine_arn, "mode": mode},
     )
 
 
@@ -300,6 +382,16 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Print intended actions without contacting AWS.",
     )
+    parser.add_argument(
+        "--cedar-mode",
+        choices=["LOG_ONLY", "ENFORCE", "OFF"],
+        default="LOG_ONLY",
+        help=(
+            "Cedar enforcement mode at the Gateway. LOG_ONLY (default) evaluates "
+            "and logs but does not block; ENFORCE rejects denied calls; OFF detaches "
+            "the policy engine."
+        ),
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -318,7 +410,18 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     if args.dry_run:
-        log.info("Dry run; would create runtime/gateway/identity with outputs %s", outputs)
+        log.info("Dry run; cedar-mode=%s outputs=%s", args.cedar_mode, outputs)
+        log.info(
+            "Cedar policies that would be synced: %s",
+            [
+                n
+                for n, _ in load_cedar_policies(
+                    CEDAR_POLICY_DIR,
+                    gateway_arn="<gateway-arn>",
+                    agent_principal_arn="<agent-principal-arn>",
+                )
+            ],
+        )
         return 0
 
     control = _control_client()
@@ -326,6 +429,26 @@ def main(argv: list[str] | None = None) -> int:
     gateway_id, gateway_url = _create_gateway(control, outputs["agent_runtime_role_arn"])
     if gateway_id:
         _create_mcp_target(control, gateway_id, outputs["mcp_endpoint_url"])
+
+    policy_engine_id, policy_engine_arn = _get_or_create_policy_engine(control)
+    gateway_arn = control.get_gateway(gatewayIdentifier=gateway_id)["gatewayArn"]
+    agent_principal_arn = iam_role_arn_to_sts_assumed_role_arn(outputs["agent_runtime_role_arn"])
+    sync_cedar_policies(
+        control,
+        policy_engine_id,
+        CEDAR_POLICY_DIR,
+        gateway_arn,
+        agent_principal_arn,
+    )
+    if gateway_id:
+        _attach_policy_engine(
+            control,
+            gateway_id,
+            outputs["agent_runtime_role_arn"],
+            policy_engine_arn,
+            args.cedar_mode,
+        )
+
     runtime_arn = _create_runtime(
         control,
         outputs["agent_runtime_role_arn"],
@@ -335,7 +458,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     _write_runtime_arn(runtime_arn, outputs["agentcore_runtime_arn_parameter"])
 
-    log.info("Provisioning complete.")
+    log.info("Provisioning complete (cedar-mode=%s).", args.cedar_mode)
     return 0
 
 

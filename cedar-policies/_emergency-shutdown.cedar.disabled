@@ -1,0 +1,22 @@
+// Emergency-shutdown kill-switch for the Triage AgentCore Gateway.
+//
+// This file is INACTIVE by design — its `.disabled` suffix keeps it out of
+// the `*.cedar` glob that scripts/provision_agentcore.py walks. To engage
+// the kill-switch, rename it (or copy it) to `emergency-shutdown.cedar`,
+// then re-run `make provision-agentcore CEDAR_MODE=ENFORCE`. To disengage,
+// delete the renamed file and re-provision — the sync helper removes any
+// engine-side policy whose name no longer appears in the repo.
+//
+// Forbid-wins semantics: Cedar's evaluator denies any request that matches
+// at least one `forbid` rule, regardless of how many `permit` rules also
+// match. So this single block immediately shuts every tool call across
+// every namespace without disturbing the existing permit rules — flip
+// CEDAR_MODE back to LOG_ONLY or remove this file when the incident
+// is resolved.
+
+@id("emergency_shutdown")
+forbid (
+    principal,
+    action,
+    resource
+);

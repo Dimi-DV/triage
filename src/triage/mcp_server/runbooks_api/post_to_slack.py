@@ -9,10 +9,12 @@ invocation:
      call (CLAUDE.md hard rule 4).
   3. Posts a Block Kit message to the requested Slack channel.
 
-Cedar policy at AgentCore Gateway must permit
-`TriageMcpGateway___runbooks_api_post_to_slack` for the calling principal
-before the tool ever runs. The Cedar gate is the system-wide write barrier;
-this code does no additional authorization beyond JWT validation.
+AgentCore Gateway evaluates the AgentCore Policy Engine
+(`policyEngineConfiguration` on the Triage policy engine) for
+`TriageMcpGateway___runbooks_api_post_to_slack` against the calling
+principal *before* this code ever runs. Cedar is the system-wide write
+barrier; this function does no additional authorization beyond
+audit-then-side-effect.
 """
 
 from __future__ import annotations

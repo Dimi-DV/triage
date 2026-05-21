@@ -21,11 +21,15 @@ These hold by design — flag any violation as P1:
 ## What you check
 
 **1. Cedar policies (`cedar-policies/*.cedar`)**
-- Default-deny posture. Reject any bare `permit(principal, action, resource);` without a `when` or `unless` clause.
-- Action format: `<GatewayTarget>___<tool_name>` (TRIPLE underscore at runtime).
-- Principal scoped: `principal is OAuthUser` or similar, never bare `principal`.
-- Resource scoped: specific Gateway ARN or resource pattern, not wildcard.
-- For write actions: at least one `when` condition constraining `context.environment == "dev"` or equivalent, plus a resource-state condition (e.g. `resource.task_count > 0` for restart actions).
+- Schema-conformant per AgentCore Policy Engine constraints (verified 2026-05-21):
+  - Principal: `principal == AgentCore::IamEntity::"__AGENT_PRINCIPAL_ARN__"` (exact-match recommended for single-role gating) or `principal is AgentCore::IamEntity` (broader, accept anyone the gateway authorizes). Wildcard `principal,` is rejected as "Overly Permissive."
+  - Action: `AgentCore::Action::"<GatewayTarget>___<tool_name>"` — TRIPLE underscore.
+  - Resource: `resource == AgentCore::Gateway::"__GATEWAY_ARN__"` — required exact form. Wildcard resource or gateway-id-only is rejected by the engine.
+  - Each policy preceded by `@id("policy_name")` (regex `^[A-Za-z][A-Za-z0-9_]*$`; sync key — duplicates clobber).
+- `__GATEWAY_ARN__` and `__AGENT_PRINCIPAL_ARN__` are template sentinels substituted by `scripts/provision_agentcore.py`. Flag any policy referencing literal ARNs (loses environment portability).
+- For write actions: if the `when` clause references a tool argument, the field must be a plain `String`/`Long`/`Bool`/`Decimal` — Pydantic `Literal[...]` becomes an auto-generated enum that is NOT string-comparable. Flag any `when { context.input.<x> == "literal-string" }` whose `<x>` is Pydantic-typed `Literal`.
+- AgentCore PolicyEngine is default-deny by design: a tool with no `permit` is unreachable under ENFORCE. Flag any new write tool that lands without a matching `permit` block.
+- Forbid-wins semantics: a single `forbid(principal, action, resource);` block (the kill-switch pattern at `_emergency-shutdown.cedar.disabled`) disables every tool. Confirm any new forbid is intentional.
 - Comment header explaining intent + which AWS action this gates.
 
 **2. IAM Terraform (`terraform/**/iam*.tf`, `aws_iam_*` resources)**
@@ -57,6 +61,6 @@ End with one of:
 ## NEVER
 
 - Never edit files. Read-only review.
-- Never approve a Cedar policy with a bare `permit(principal, action, resource);` and no conditions.
+- Never approve a Cedar policy that constrains only `principal` and `action` without an `AgentCore::Gateway::"__GATEWAY_ARN__"` resource scope (engine rejects it; the diff is broken).
 - Never assume something is fine because the writer's commit message said so. Read the diff.
 - Never speculate beyond what the diff shows. If a referenced file is missing, flag it; don't guess at its contents.

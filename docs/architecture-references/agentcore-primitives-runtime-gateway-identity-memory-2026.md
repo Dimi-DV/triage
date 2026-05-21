@@ -35,14 +35,18 @@ Decision-doc cross-references: 3.1 (platform), 3.2 (Gateway fronting MCP), 3.3 (
 
 **What it is:** the auth + policy enforcement layer between the agent and external tools. Turns APIs, Lambdas, and MCP servers into agent-callable tools while applying:
 
-1. **OAuth 2.0/2.1 auth** (handed off to AgentCore Identity)
-2. **Cedar policy evaluation** — deterministic allow/deny *before* the tool is invoked
+1. **Authorizer** — `AWS_IAM` (SigV4 from the caller's IAM role) or `CUSTOM_JWT`. (The original "OAuth 2.0/2.1 handed off to AgentCore Identity" framing didn't match the live API — Identity is a credential broker, not an inbound OAuth issuer. See `feedback_agentcore_identity_oauth_myth`.)
+2. **Cedar policy evaluation** — deterministic allow/deny *before* the tool is invoked, via the **AgentCore Policy Engine** primitive (GA 2026-03-03) attached to the Gateway through `update_gateway(policyEngineConfiguration={arn, mode})`. Mode toggles `LOG_ONLY` ↔ `ENFORCE`.
 
-**Cedar at Gateway** is the production write-action gate per decision-doc Section 3.3. The policy evaluates conditions on the action, target resource, environment, and current state. Example: `restart_ecs_service` allowed only when `environment == "dev"` and `service.task_count > 0`. The LLM cannot prompt-inject around this; Cedar runs at the Gateway boundary, not in the agent's prompt.
+**Cedar at Gateway** is the production write-action gate per decision-doc Section 3.3. The policy evaluator is AWS-managed; we sync Cedar policies from `cedar-policies/*.cedar` into a script-managed PolicyEngine via `bedrock-agentcore-control.CreatePolicy / UpdatePolicy / DeletePolicy`. The LLM cannot prompt-inject around this; Cedar runs at the Gateway boundary, not in the agent's prompt.
 
-**For Triage:** Gateway fronts your custom MCP server. Cedar policy file lives in the repo; loaded into Gateway config at deploy time.
+**Schema constraints (per AWS's Policy schema doc + empirical probing):**
+- Principal: `AgentCore::IamEntity::"arn:aws:sts::ACCOUNT:assumed-role/NAME"` (IAM gateway) or `AgentCore::OAuthUser` (JWT gateway). Wildcard principal is rejected as "Overly Permissive."
+- Action: `AgentCore::Action::"<GatewayTargetName>___<tool_name>"` (triple-underscore, derived from the MCP tools/list).
+- Resource: `AgentCore::Gateway::"<full-gateway-ARN>"`. Required exact form; wildcard or gateway-id-only is rejected.
+- Context: only `context.input.*` is available. JSON Schema → Cedar type mapping is string→String / integer→Long / boolean→Bool / number→Decimal. Pydantic `Literal[...]` becomes a per-action auto-generated enum that is NOT comparable to Cedar string literals (hard type error at policy creation).
 
-**Verify:** current Cedar integration pattern (the AWS docs show example policy files and the Gateway config format).
+**For Triage:** Gateway fronts your custom MCP server. Cedar policy text + the sync helper live in the repo; the PolicyEngine is script-managed (no Terraform resource yet) and the policies plus the gateway-ARN substitution happen at provision time. Default mode is `LOG_ONLY`; flip to `ENFORCE` once the LOG_ONLY traces confirm the Gateway-constructed principal matches what your policies expect.
 
 ## AgentCore Identity
 
@@ -56,13 +60,13 @@ Decision-doc cross-references: 3.1 (platform), 3.2 (Gateway fronting MCP), 3.3 (
 
 ```
 CloudWatch Alarm → SNS → Lambda
-                            ↓ (invokes)
+                            ↓ (invokes via SigV4)
                     AgentCore Runtime (your agent session)
                             ↓ (queries memory)
                     AgentCore Memory ← → Runtime
-                            ↓ (calls tool)
-                    AgentCore Gateway ← Identity (OAuth 2.1)
-                                       ← Cedar policy gate
+                            ↓ (SigV4 to Gateway)
+                    AgentCore Gateway ← AWS_IAM authorizer
+                                       ← AgentCore Policy Engine (Cedar, ENFORCE)
                             ↓ (proxied MCP call)
                     Your custom MCP server
                             ↓

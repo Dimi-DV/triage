@@ -238,9 +238,22 @@ data "aws_iam_policy_document" "agent_runtime" {
       # SigV4-signs a request to the gateway's data-plane URL.
       # InvokeGatewayTarget / ListGatewayTargets cover the control-plane
       # introspection paths.
+      # GetPolicyEngine + AuthorizeAction + PartiallyAuthorizeActions are
+      # the three permissions the AgentCore docs list for the Gateway
+      # Execution Role to use Policy in AgentCore
+      # (docs.aws.amazon.com/bedrock-agentcore/latest/devguide/policy-permissions.html).
+      # CheckAuthorizePermissions is also required at attach time — the
+      # live API surfaces it via AccessDenied during the
+      # "GenesisPolicyEngineCheck" assumed-role even though it's not yet
+      # listed in those docs (verified empirically 2026-05-21; treat as
+      # doc drift on a newly-GA primitive).
       "bedrock-agentcore:InvokeGateway",
       "bedrock-agentcore:InvokeGatewayTarget",
       "bedrock-agentcore:ListGatewayTargets",
+      "bedrock-agentcore:GetPolicyEngine",
+      "bedrock-agentcore:AuthorizeAction",
+      "bedrock-agentcore:PartiallyAuthorizeActions",
+      "bedrock-agentcore:CheckAuthorizePermissions",
     ]
     resources = ["*"]
   }

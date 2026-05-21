@@ -39,10 +39,15 @@ Create or edit:
    - Error path (boto3 ClientError) — assert the wrapped error type
    - For write tools: assert the audit entry is emitted **before** the AWS call (order matters — if the AWS call happens first and audit second, a partial failure escapes the journal)
 
-3. **If write tool:** `cedar-policies/<namespace>-<verb>-<noun>.cedar` — policy stub:
-   - Default deny
-   - Allow only when `environment == "dev"` plus resource-specific conditions (e.g. `resource.task_count > 0` for `restart_ecs_service`)
-   - Header comment explaining policy intent + which AWS action it gates
+3. **If write tool:** append a `@id("permit_<verb>_<noun>")`-annotated `permit` block to `cedar-policies/agent-tools.cedar`. Policy shape:
+   - `principal == AgentCore::IamEntity::"__AGENT_PRINCIPAL_ARN__"` (sentinel, substituted at provision time to the Triage agent role)
+   - `action == AgentCore::Action::"TriageMcpGateway___<tool_id>"` (must match the tool's `name=` in `@mcp.tool`)
+   - `resource == AgentCore::Gateway::"__GATEWAY_ARN__"` (sentinel; required exact-form — wildcard resource is rejected by the engine)
+   - Header comment explaining policy intent
+   - `@id` is the policy name; must match regex `^[A-Za-z][A-Za-z0-9_]*$` (no hyphens — use underscores)
+   - Default-deny by AgentCore semantics: a tool without an explicit `permit` is unreachable under ENFORCE
+   - For attribute-conditional gating: a `when { context.input.<arg>.<field> == … }` clause works *only* if `<field>` is a plain `str`/`int`/`bool`/`float` — Pydantic `Literal[...]` fields become a per-action enum that is not string-comparable. Prefer plain `str` with a Pydantic `Field(pattern=…)` validator when the field needs Cedar-side gating.
+   - Re-run `make provision-agentcore CEDAR_MODE=ENFORCE` to push the policy into the AgentCore PolicyEngine
 
 ## Hard rules to enforce
 
@@ -56,7 +61,7 @@ Create or edit:
 
 - Tool ID (Python + MCP registration): `<namespace_underscored>_<verb>_<noun>` — e.g. `metrics_api_query_cloudwatch`
 - File: `src/triage/mcp_server/<namespace_underscored>/<tool_name>.py`
-- Cedar policy: `cedar-policies/<namespace>-<verb>-<noun>.cedar` (kebab-case in filename)
+- Cedar policy: appended to `cedar-policies/agent-tools.cedar` as a `@id("permit_<verb>_<noun>")`-annotated block (NOT a new file)
 - Test: `tests/unit/mcp_server/<namespace_underscored>/test_<tool_name>.py`
 
 ## References

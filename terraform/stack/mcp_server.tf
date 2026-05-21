@@ -233,12 +233,19 @@ resource "aws_ecs_task_definition" "mcp_server" {
         { name = "TRIAGE_SLACK_SECRET_ID", value = aws_secretsmanager_secret.slack_bot_token.name },
         { name = "TRIAGE_MCP_AUDIENCE", value = "triage-mcp" },
         { name = "AWS_REGION", value = var.aws_region },
-        # AgentCore Gateway authenticates callers via SigV4 (AWS_IAM authorizer).
-        # The MCP server trusts requests forwarded from the Gateway; no second
-        # auth layer here. The Cedar enforcement that the original BootstrapGate
-        # / JWTAuth pair was scaffolded around still needs a Gateway interceptor
-        # (deferred). Leaving MCP auth disabled until that path is implemented.
+        # AgentCore Gateway authenticates callers via SigV4 (AWS_IAM authorizer)
+        # and Cedar-gates the call via the AgentCore Policy Engine (`TriagePolicyEngine`,
+        # ENFORCE mode) before the request reaches this MCP server. The MCP
+        # server trusts requests forwarded from the Gateway; no second auth
+        # layer here.
         { name = "TRIAGE_MCP_AUTH_DISABLED", value = "1" },
+        # TRIAGE_PRINCIPAL stamps the audit log's `principal` field. Cedar's
+        # exact-match `principal == AgentCore::IamEntity::"…"` clause already
+        # constrains the SigV4 caller to the agent runtime role, so we can
+        # confidently record that identity here instead of the "local-dev"
+        # fallback. The STS assumed-role form matches what Cedar evaluates
+        # against; the Python audit helper reads it via os.environ.
+        { name = "TRIAGE_PRINCIPAL", value = "arn:aws:sts::${data.aws_caller_identity.current.account_id}:assumed-role/${aws_iam_role.agent_runtime.name}" },
       ]
 
       # No SSM-backed secrets needed: the original AGENTCORE_IDENTITY_ISSUER
