@@ -210,7 +210,7 @@ def _runtime_config(
         "networkConfiguration": {"networkMode": "PUBLIC"},
         "protocolConfiguration": {"serverProtocol": "HTTP"},
         "environmentVariables": {
-            "BEDROCK_MODEL_ID": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+            "BEDROCK_MODEL_ID": "us.anthropic.claude-sonnet-4-6",
             "TRIAGE_GATEWAY_URL": gateway_url,
             "TRIAGE_AUDIT_BUCKET": audit_bucket,
             "TRIAGE_PRINCIPAL": "agent:prod-triage-agent",
