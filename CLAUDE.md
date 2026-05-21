@@ -5,7 +5,7 @@
 
 ## What this project is
 
-An AIOps incident response agent on AWS Bedrock AgentCore. Mirrors the AWS DevOps Agent reference architecture (Molumuri et al., AWS DevOps Blog, March 31, 2026). Single substantive lead agent with one stub subagent — designed for multi-agent expansion, ships single.
+An AIOps incident response agent on AWS Bedrock AgentCore. Mirrors the AWS DevOps Agent reference architecture (Molumuri et al., AWS DevOps Blog, March 31, 2026). Pure single-agent — the v3.1 amendment dropped the stub subagent (see decision-doc §3.10).
 
 ## Stack
 

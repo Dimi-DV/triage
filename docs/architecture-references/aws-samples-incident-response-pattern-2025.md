@@ -28,7 +28,7 @@ Decision-doc cross-references: 3.2 (namespaces also come from here), 3.10 (multi
 
 **1. Namespace organization on the MCP layer.** The same four-namespace convention from the AWS multi-agent SRE blog post (`metrics-api`, `logs-api`, etc.) appears in this repo's tool definitions. You replicate the convention.
 
-**2. A2A interface design.** Each agent exposes a callable surface to its peers via A2A. Even if you only build one stub subagent in Triage, designing the lead agent's call sites to use the A2A pattern means future expansion doesn't require refactoring.
+**2. A2A interface design.** Each agent exposes a callable surface to its peers via A2A. Triage v1 ships pure single-agent (v3.1 dropped the original stub subagent — see decision-doc §3.10), but the lead-agent-routes architectural sketch in §3.10 still describes the call-site shape for any future expansion.
 
 **3. Per-agent IAM scoping.** Each agent runs with its own minimal IAM role. The Monitoring Agent has read-only access to CloudWatch and EKS APIs; the Operations Orchestrator has gated write access. Cedar policies layered on top. Triage runs a single agent role but you adopt the read-only-default + Cedar-gated-writes pattern.
 
@@ -38,7 +38,7 @@ Decision-doc cross-references: 3.2 (namespaces also come from here), 3.10 (multi
 
 ## Patterns you don't replicate this sprint
 
-- **Three real agents on three SDKs.** Pure complexity. Triage ships one substantive agent + one stub subagent.
+- **Three real agents on three SDKs.** Pure complexity. Triage ships pure single-agent (v3.1 dropped the originally-bundled stub subagent — see decision-doc §3.10 + §11 row 21).
 - **Three different agent SDKs.** AgentCore Runtime supports it, but the SDKs themselves are different mental models. Pick one (the Strands Agents SDK is the AWS-native default).
 - **Cognito setup.** AgentCore Identity is the easier path for a single-agent project.
 

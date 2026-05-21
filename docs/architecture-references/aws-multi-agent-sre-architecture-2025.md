@@ -7,7 +7,7 @@
 
 This is the source of the **four canonical MCP tool namespaces** the decision doc commits to in Section 3.2: `k8s-api`, `logs-api`, `metrics-api`, `runbooks-api`. The four-namespace organization isn't your invention — it's AWS's own published convention. Using the same vocabulary means a hiring manager who read this blog post sees instant alignment with current AWS reference designs.
 
-The post also frames the multi-agent supervisor pattern you partially adopt per Section 3.10 (designed-for, stub subagent).
+The post also frames the multi-agent supervisor pattern decision-doc §3.10 describes as the future-expansion sketch (Triage v1 ships pure single-agent — the v3.1 amendment dropped the stub subagent originally bundled with v3).
 
 Decision-doc cross-references: 3.2 (namespaces), 3.10 (multi-agent designed-for), 11 rows 3 and 21.
 
@@ -33,12 +33,11 @@ Example flow:
 4. Lead agent dispatches runbooks subagent: "what does the playbook say for this alarm type?"
 5. Lead agent synthesizes → diagnosis posted to Slack
 
-In Triage, per Section 3.10, you **don't build the full multi-agent flow**. You build:
-- A single substantive lead agent that calls all four namespaces directly
-- **One stub subagent** invoked via A2A (Lambda) for one non-critical task — deploy history lookup or ticket correlation
-- Architecture designed so future expansion to full multi-agent is plumbed but not wired
+In Triage, per Section 3.10 (post-v3.1), you **don't build any subagents**:
+- A single substantive lead agent calls all four namespaces directly
+- The stub subagent originally planned in v3 was dropped in v3.1 — marginal interview value didn't justify the agent-card-registration + OAuth-wiring cost; the architectural claim is better made by the "Concrete expansion path" interview answer in §3.10 than by a stub Lambda
 
-The interview answer is "designed for multi-agent, ships single-agent + stub demonstrating the path."
+The interview answer is "pure single-agent shipped; here's exactly what multi-agent would look like for this architecture, and here's the security/scaling/organizational boundary that would justify building it." The A2A section below remains as future-iteration reading.
 
 ## Implementation patterns worth borrowing
 
@@ -48,11 +47,11 @@ The interview answer is "designed for multi-agent, ships single-agent + stub dem
 
 **Audit emission per write.** Every write tool (in Triage, gated through Cedar + Slack) appends to the immutable audit journal. Read tools don't audit at the same level — too noisy.
 
-## A2A protocol (for the stub subagent)
+## A2A protocol (future-iteration reading)
 
 A2A is the agent-to-agent protocol bundled with AgentCore. Lets one agent invoke another by ID. The published reference (`aws-samples/sample-fully-autonomous-incident-response`) uses A2A between three agents on three different SDKs (Strands, OpenAI Agents, Google ADK).
 
-For Triage stub: your lead agent invokes a Lambda over A2A. The Lambda doesn't need to be smart — just receives a structured request, returns a structured response. The point is proving the architecture supports subagent dispatch.
+The v3 plan was to ship one Triage stub subagent over A2A to demonstrate the dispatch path. v3.1 dropped that stub (§3.10) — when multi-agent expansion is genuinely justified by a security/scaling/organizational boundary, the lead agent's MCP call sites would gain A2A-shaped equivalents that target subagent ARNs instead of MCP tool ids. Not v1 work.
 
 ## Verify against live source
 

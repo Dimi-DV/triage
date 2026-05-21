@@ -94,7 +94,7 @@ This is the single biggest production-readiness multiplier. Corpus tests miss pr
 ### L1. Multi-agent decomposition
 **Effort:** several weeks. **Depends on:** stable single-agent baseline.
 
-The current architecture is "single substantive lead agent + one stub subagent" (spec §3.2). Designed for multi-agent expansion. Real subagents to spawn: a `network-investigator` (network/connectivity faults), a `data-plane-investigator` (DB/cache/storage), a `security-investigator` (IAM, secrets, WAF). Lead delegates based on initial signal, aggregates responses. AWS DevOps Agent reference architecture (Molumuri et al., March 2026) does exactly this. Eval framework needs to extend to multi-agent traces — non-trivial.
+The current architecture is pure single-agent (the v3.1 amendment dropped the stub subagent that v3 had originally bundled; see decision-doc §3.10). Real subagents to spawn: a `network-investigator` (network/connectivity faults), a `data-plane-investigator` (DB/cache/storage), a `security-investigator` (IAM, secrets, WAF). Lead delegates based on initial signal, aggregates responses. AWS DevOps Agent reference architecture (Molumuri et al., March 2026) does exactly this. Eval framework needs to extend to multi-agent traces — non-trivial.
 
 ### L2. Self-improving runbook loop
 **Effort:** several weeks. **Depends on:** L1, M3, real production incidents.
@@ -136,8 +136,8 @@ Slack is the only output today. Production SRE workflow usually involves PagerDu
 
 ## If only one thing lands next
 
-**N2 Cedar Lambda interceptor.** Closes the largest claim-vs-reality gap. One day of focused work converts a paper architectural commitment into a working artifact with policy-as-code testing. The other near-terms are valuable but Cedar is the only one that closes an existing spec promise — everything else is additive.
+**L3 Action proposal + human-approval workflow.** Now the largest claim-vs-reality gap (Cedar shipped Day 36 Hour 22; see N2 above). Decision-doc §3.3 commits to a two-gate write flow — Cedar deterministic + Slack human-ack. Cedar is enforcing; Slack-as-second-gate is paper-only because no tool currently proposes-then-waits. Closing it: one propose-only write tool + a Slack interactive endpoint Lambda + a corpus scenario whose `correct_remediation` exercises the propose-and-ack path. ~half-day to a day. After this lands, the `asks_before_destructive_action` evaluator stops being vacuous.
 
 Distant second: **N1 CloudTrail tool.** Highest practical-diagnosis-capability delta available. Surfaced as a real gap during the Hour 20 thought experiment ("would the agent diagnose a manual operator action?" — no, because there's no audit-trail visibility).
 
-If we had a free week: N2 (Cedar) + N1 (CloudTrail) + N3 (negative-test scenario) + N4 (latency/cost telemetry). That bundle moves Triage from "passes a hand-curated corpus" to "passes a corpus with falsifiable gates, attributed incidents, and measured cost per diagnosis."
+If we had a free week: L3 (Slack approval) + N1 (CloudTrail) + N3 (negative-test scenario) + N4 (latency/cost telemetry). That bundle moves Triage from "passes a hand-curated corpus" to "closes the two-gate spec commitment, attributes incidents, has falsifiable gates, and measures cost per diagnosis."
