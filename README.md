@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/triage-readme-header-v2.png" alt="Triage — autonomous incident response on AWS Bedrock AgentCore" width="100%">
+  <img src="docs/images/triage-readme-header-v2-2x.png" alt="Triage — autonomous incident response on AWS Bedrock AgentCore" width="100%">
 </p>
 
 [![CI](https://github.com/Dimi-DV/triage/actions/workflows/ci.yml/badge.svg)](https://github.com/Dimi-DV/triage/actions/workflows/ci.yml)

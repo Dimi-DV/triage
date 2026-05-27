@@ -51,7 +51,8 @@ repos:
       - id: check-toml
       - id: check-json
       - id: check-added-large-files
-        args: [--maxkb=500]
+        # 1 MB: allow 2x/retina README header + diagram assets under docs/images/
+        args: [--maxkb=1024]
 
   - repo: https://github.com/antonbabenko/pre-commit-terraform
     rev: v1.96.1
