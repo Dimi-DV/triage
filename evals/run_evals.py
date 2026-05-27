@@ -338,6 +338,26 @@ def _is_gating(evaluator_id: str) -> bool:
     return "-" in evaluator_id
 
 
+def _any_gating_failure(verdicts: list[dict[str, Any]]) -> bool:
+    """Return True if any *gating* evaluator returned a numeric score of 0.
+
+    Built-ins and the post-hoc MAST classifier never gate (see _is_gating).
+    An errored gating judge (no numeric score) is not a failure — we can't
+    classify against assertions we never evaluated. A partial score (e.g.
+    1.0 on the 3-point diagnosis judge) is not a failure either; only
+    score == 0 gates. Mirrors the inline gating check in _summarize.
+    """
+    for v in verdicts:
+        if not _is_gating(v["evaluator_id"]):
+            continue
+        if v.get("error"):
+            continue
+        score = v.get("score")
+        if isinstance(score, (int, float)) and score == 0:
+            return True
+    return False
+
+
 def _check_mandatory_mentions(scenario: dict[str, Any], final_text: str) -> dict[str, Any]:
     """Local deterministic evaluator: every string in scenario['mandatory_mentions']
     must appear (case-insensitive) in the agent's final_text.

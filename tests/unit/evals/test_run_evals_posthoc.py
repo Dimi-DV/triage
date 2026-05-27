@@ -86,8 +86,10 @@ def test_any_gating_failure_ignores_partial_score() -> None:
 
 
 @pytest.mark.unit
-def test_run_posthoc_skips_on_passing_run(monkeypatch: pytest.MonkeyPatch) -> None:
-    """No post-hoc evaluator should fire when all gating judges pass."""
+def test_run_posthoc_fires_on_passing_run_too(monkeypatch: pytest.MonkeyPatch) -> None:
+    """MAST now fires on every run, including passing ones — the Day-20
+    "MAST every-run" change. It previously skipped passing runs, which
+    starved the failure-mode distribution on a generous-judge corpus."""
     called: list[str] = []
 
     def fake_call(*args: Any, **kwargs: Any) -> dict[str, Any]:
@@ -108,8 +110,10 @@ def test_run_posthoc_skips_on_passing_run(monkeypatch: pytest.MonkeyPatch) -> No
         session_id="sess",
         trace_id="trace",
     )
-    assert new == []
-    assert called == []
+    assert len(new) == 1
+    assert new[0]["evaluator_id"].startswith("mast_classification")
+    assert new[0]["posthoc"] is True
+    assert called == [new[0]["evaluator_id"]]
 
 
 @pytest.mark.unit
