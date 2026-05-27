@@ -65,3 +65,9 @@ docs/journal/*-draft.md
 logs/
 audit-local/
 terraform/stack/.build/
+
+# Internal planning / personal notes — kept locally, not published
+docs/day-31-reading.md
+docs/future-plans.md
+docs/00-workflow-pattern.md
+docs/architecture-references/00-project-memory-index.md

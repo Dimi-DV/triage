@@ -6,9 +6,9 @@
 
 ## Amendment — 2026-05-19 (v3.1)
 
-The stub subagent commitment is dropped. The v3.1 spec amendment (§3.10) drops both (a) the "designed for multi-agent expansion" framing — the 2026 hiring signal filters against sprawling multi-agent demos — and (b) the stub Lambda + A2A endpoint originally bundled with this ADR.
+The stub subagent commitment is dropped. The v3.1 spec amendment (§3.10) drops both (a) the "designed for multi-agent expansion" framing — in favor of a focused single-agent architecture — and (b) the stub Lambda + A2A endpoint originally bundled with this ADR.
 
-Reasoning recorded in spec §3.10: the stub added ~3–5 hours of agent-card-registration + OAuth-wiring work for marginal interview value. The architectural claim "I understand when multi-agent boundaries apply" is better made by *explaining when they apply* than by building one stub to point at — and the four MCP namespaces are tool categories, not domains needing separate agents.
+Reasoning recorded in spec §3.10: the stub added ~3–5 hours of agent-card-registration + OAuth-wiring work for marginal architectural value. The architectural claim "I understand when multi-agent boundaries apply" is better made by *explaining when they apply* than by building one stub to point at — and the four MCP namespaces are tool categories, not domains needing separate agents.
 
 The "Alternatives considered" and "Consequences" sections below describe the pre-amendment reasoning and are preserved verbatim as historical record. Triage v1 ships **pure single-agent, no stub.** For the current architecture position, see spec §3.10 directly.
 
@@ -16,7 +16,7 @@ The "Alternatives considered" and "Consequences" sections below describe the pre
 
 Multi-agent architectures (one lead agent orchestrating specialist subagents over A2A protocol) are becoming the canonical AIOps pattern. AWS's own published reference `aws-samples/sample-fully-autonomous-incident-response` uses three agents (Monitoring Agent on Strands Agents SDK, Operations Orchestrator on OpenAI Agents SDK, Host Orchestrator on Google ADK) coordinated via A2A. The blog-post pattern in AWS's multi-agent SRE post (ADR-0003 references the four-namespace convention from the same post) presupposes one specialist subagent per namespace.
 
-Fully implementing three real subagents on A2A — with proper inter-agent debugging, separate IAM scoping, separate observability spans, separate prompts — is more scope than the 6-day Triage sprint can absorb. But ignoring the multi-agent direction entirely would be a poor signal: every interview in 2026 is going to ask about it.
+Fully implementing three real subagents on A2A — with proper inter-agent debugging, separate IAM scoping, separate observability spans, separate prompts — is more scope than the 6-day Triage sprint can absorb. But ignoring the multi-agent direction entirely would leave an obvious architectural question — "how would this scale to multiple teams?" — unaddressed.
 
 The compromise needs to (a) actually demonstrate the multi-agent path is plumbed, not just claimed, and (b) keep the v1 implementation tractable.
 
@@ -38,14 +38,14 @@ Specific design discipline to keep the multi-agent path open:
 
 **Ship full multi-agent v1** (three real subagents, three SDKs, A2A throughout). Matches AWS's published reference exactly. Rejected because the SDK diversity (Strands + OpenAI Agents + Google ADK) is pedagogical overhead the sprint can't afford. Even three subagents on the same SDK would still require ~2 sprint days of inter-agent debugging.
 
-**Ship strictly single-agent, no stub.** Simplest. Rejected because "designed for multi-agent" is harder to defend in an interview if there's zero evidence of the architecture actually supporting it. The stub subagent is the proof.
+**Ship strictly single-agent, no stub.** Simplest. Rejected because "designed for multi-agent" is harder to substantiate if there's zero evidence of the architecture actually supporting it. The stub subagent is the proof.
 
 **Ship single-agent now, plan to add subagents post-sprint.** Equivalent to "no stub." Same rejection.
 
 ## Consequences
 
 **Positive:**
-- The interview talking point — "I designed for multi-agent, ships single agent plus a stub subagent demonstrating the A2A dispatch path; full expansion is the next iteration mirroring `aws-samples/sample-fully-autonomous-incident-response`" — is concrete and defensible
+- The architectural story — "I designed for multi-agent, ships single agent plus a stub subagent demonstrating the A2A dispatch path; full expansion is the next iteration mirroring `aws-samples/sample-fully-autonomous-incident-response`" — is concrete and defensible
 - Same scope discipline applied elsewhere in the project (the learned skill tier is scoped out the same way per ADR-0002's context)
 - Lead agent stays simple, easy to reason about, easy to evaluate (ADRs 0005 and 0006)
 - A2A protocol is touched in the codebase, not just discussed — proof the architecture supports it
@@ -55,7 +55,7 @@ Specific design discipline to keep the multi-agent path open:
 - A reader looking for "the multi-agent agent" sees one substantive agent plus a clearly-labeled stub. README must explain the choice prominently or this looks like incompleteness rather than discipline. Mitigation: README has a dedicated "alternative architectures considered" section.
 
 **Neutral:**
-- Expansion to full multi-agent is non-trivial but unblocked. A future sprint (post-portfolio, post-hiring, post-Day-42) can pick up where v1 left off without architectural rework.
+- Expansion to full multi-agent is non-trivial but unblocked. A future sprint (post-v1) can pick up where v1 left off without architectural rework.
 
 ## References
 

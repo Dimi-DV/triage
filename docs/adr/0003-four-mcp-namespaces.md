@@ -35,7 +35,7 @@ Tool naming convention: `<namespace>_<verb>_<noun>` (e.g., `metrics_api_get_alar
 ## Consequences
 
 **Positive:**
-- Vocabulary alignment with AWS's published multi-agent SRE reference architecture — a hiring manager who has read those AWS posts sees instant familiarity
+- Vocabulary alignment with AWS's published multi-agent SRE reference architecture — instant familiarity for anyone who has read those AWS posts
 - Future expansion to multi-agent is plumbed: each namespace is a future subagent's surface area
 - The `/add-mcp-tool` Claude Code skill (when written on Day 34) enforces this convention automatically
 - CLAUDE.md's "tools live in exactly one namespace" rule is unambiguous and machine-enforceable

@@ -5,7 +5,7 @@
 
 ## Why this matters for Triage
 
-This is the source of the **four canonical MCP tool namespaces** the decision doc commits to in Section 3.2: `k8s-api`, `logs-api`, `metrics-api`, `runbooks-api`. The four-namespace organization isn't your invention — it's AWS's own published convention. Using the same vocabulary means a hiring manager who read this blog post sees instant alignment with current AWS reference designs.
+This is the source of the **four canonical MCP tool namespaces** the decision doc commits to in Section 3.2: `k8s-api`, `logs-api`, `metrics-api`, `runbooks-api`. The four-namespace organization isn't your invention — it's AWS's own published convention. Using the same vocabulary means the project aligns with current AWS-published reference designs.
 
 The post also frames the multi-agent supervisor pattern decision-doc §3.10 describes as the future-expansion sketch (Triage v1 ships pure single-agent — the v3.1 amendment dropped the stub subagent originally bundled with v3).
 
@@ -35,9 +35,9 @@ Example flow:
 
 In Triage, per Section 3.10 (post-v3.1), you **don't build any subagents**:
 - A single substantive lead agent calls all four namespaces directly
-- The stub subagent originally planned in v3 was dropped in v3.1 — marginal interview value didn't justify the agent-card-registration + OAuth-wiring cost; the architectural claim is better made by the "Concrete expansion path" interview answer in §3.10 than by a stub Lambda
+- The stub subagent originally planned in v3 was dropped in v3.1 — marginal architectural value didn't justify the agent-card-registration + OAuth-wiring cost; the architectural claim is better made by the "Concrete expansion path" in §3.10 than by a stub Lambda
 
-The interview answer is "pure single-agent shipped; here's exactly what multi-agent would look like for this architecture, and here's the security/scaling/organizational boundary that would justify building it." The A2A section below remains as future-iteration reading.
+The position is "pure single-agent shipped; here's exactly what multi-agent would look like for this architecture, and here's the security/scaling/organizational boundary that would justify building it." The A2A section below remains as future-iteration reading.
 
 ## Implementation patterns worth borrowing
 

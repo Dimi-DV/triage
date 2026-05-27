@@ -8,7 +8,7 @@
 
 ## Why this matters for Triage
 
-FIS is the chaos-engineering service that produces **4 of your 8–10 outage scenarios** in the corpus per the decision doc Section 3.4. The other 4–6 are Terraform overlay misconfigurations. FIS gives you parameterized, reusable, AWS-native faults that are dramatically more credible in interviews than ad-hoc bash scripts.
+FIS is the chaos-engineering service that produces **4 of your 8–10 outage scenarios** in the corpus per the decision doc Section 3.4. The other 4–6 are Terraform overlay misconfigurations. FIS gives you parameterized, reusable, AWS-native faults that are dramatically more credible than ad-hoc bash scripts.
 
 Decision-doc cross-references: 3.4 (outage corpus), 11 row 7.
 
@@ -35,7 +35,7 @@ FIS works via **experiment templates**:
 3. FIS injects the fault, your CloudWatch alarms fire, your agent receives the alarm, investigation begins
 4. Experiment ends either on duration timeout or stop condition
 
-**Stop conditions are essential for portfolio work.** You don't want to accidentally take production-style infra down for hours because the agent failed to diagnose. Every experiment template should have a stop condition like "if billing exceeds $5 in 1 hour, halt."
+**Stop conditions are essential.** You don't want to accidentally take production-style infra down for hours because the agent failed to diagnose. Every experiment template should have a stop condition like "if billing exceeds $5 in 1 hour, halt."
 
 ## Cost notes
 

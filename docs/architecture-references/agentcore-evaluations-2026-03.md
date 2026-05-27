@@ -124,7 +124,7 @@ For each scenario in the outage corpus:
 | MAST failure mode (if fail) | See `mast-failure-modes-*.md` |
 | Comparable baseline | STRATUS / ITBench / AIOpsLab |
 
-This table is the single highest-leverage interview artifact in the entire project.
+This table is the single highest-leverage artifact in the entire project.
 
 ## Doc said / API does — divergence log
 

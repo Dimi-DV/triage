@@ -12,7 +12,7 @@ fields, and writes a single markdown summary to
   - A per-scenario run table (timestamp, diagnosis verdict, MAST
     classification if the run failed, trajectory match, link to JSON).
   - An aggregate FM distribution across all failed runs that have a
-    MAST classification — the §3.5 interview-grade payoff.
+    MAST classification — the §3.5 failure-analysis payoff.
   - A "verdicts by gating evaluator" rollup.
 
 Re-run any time:

@@ -167,7 +167,7 @@ Three distinct regression categories across four runs, all caught by the eval lo
 2. **IAM gap** (v2): the `logs-api` namespace was added last session without the corresponding IAM extension. Caught by the corpus, not a manual audit.
 3. **FM-2.6 Reasoning-Action Mismatch** + **rubric authoring mistake** (v3): the agent had the right data but reasoned about it wrong (inverted heartbeat direction); the reference_answer overspecified the diagnosis by requiring the agent to name FIS specifically — a fact the agent's tools cannot observe. Loosening the rubric to symptom-level diagnosis was the correct authoring fix, not goalpost shifting.
 
-That last point is the most interesting for the portfolio: the eval rubric itself can be wrong, and the corpus catches that too.
+That last point is the most interesting result here: the eval rubric itself can be wrong, and the corpus catches that too.
 
 ---
 

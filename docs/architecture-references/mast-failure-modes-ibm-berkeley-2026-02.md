@@ -6,7 +6,7 @@
 
 ## Why this matters for Triage
 
-MAST is the failure-mode taxonomy you use to **classify every failed run** in your eval per the decision doc Section 3.5. Almost no other portfolio project does this. Annotating against a published taxonomy from a current paper with a 94%-accurate classifier signals research literacy and evaluation discipline — the differentiator vs. generic "agent demo" repos in the hiring pool.
+MAST is the failure-mode taxonomy you use to **classify every failed run** in your eval per the decision doc Section 3.5. Few comparable agent projects do this. Annotating against a published taxonomy from a current paper with a 94%-accurate classifier demonstrates evaluation discipline — the differentiator vs. generic "agent demo" repos.
 
 Decision-doc cross-references: Section 3.5 (primary), 11 row 9.
 
@@ -46,7 +46,7 @@ For every scenario in your outage corpus where the agent fails, run the trace th
 - Whether your distribution mirrors any of the published model distributions
 - What design change you'd make to address the most-common mode in your agent
 
-That last point is the interview-grade payoff: "Our agent failed FM-3.3 in 4 of 7 misses. We'd address this in the next iteration by adding a Summarizer Agent and explicit verification step in the lead agent's prompt — the same intervention the IBM/Berkeley paper showed yields up to 53% improvement."
+That last point is the actionable payoff: "The agent failed FM-3.3 in 4 of 7 misses; the next iteration would add a Summarizer Agent and an explicit verification step in the lead agent's prompt — the same intervention the IBM/Berkeley paper showed yields up to 53% improvement."
 
 ## What's NOT MAST's job
 

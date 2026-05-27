@@ -31,7 +31,7 @@ Cited in the post for preview customers (now official at GA):
 
 Named customers: Western Governors University (28-min investigations vs ~2 hours = 77% MTTR improvement), Zenchef (20–30 min vs 1–2 hours = ~75% reduction), T-Mobile (live design partner with Splunk multi-cloud + on-prem), United Airlines, Granola.
 
-**Treat these as vendor numbers**, useful as the public benchmark you can compare your own eval results against in interviews — not as ground truth.
+**Treat these as vendor numbers**, useful as the public benchmark to compare your own eval results against — not as ground truth.
 
 ## Integration surface at GA
 
@@ -51,18 +51,18 @@ Pure active-time billing at $0.0083 per agent-second. No idle baseline. AWS Supp
 | Skill tier 3 (learned) | ✗ scope out | Document as next iteration in README |
 | Cedar at Gateway | ✓ | Section 3.3 |
 | Immutable audit journal | ✓ | S3 bucket with Object Lock |
-| Cross-account access | ✗ scope out | Single-account is fine for portfolio scope |
+| Cross-account access | ✗ scope out | Single-account is fine for this project's scope |
 | Multi-cloud integration | ✗ scope out | AWS-only |
 
 ## Verify against live source
 
-When you cite specifics in the README or interview, double-check against the live blog post:
+When you cite specifics in the README, double-check against the live blog post:
 
 - Exact phrasing of "Agent Spaces" definition
 - Exact MTTR / accuracy percentages (they may update post-launch)
 - Current integration partner list (may grow)
 - Current pricing
 
-## Interview-grade quote to anchor the README
+## Quote to anchor the README
 
 The post is the canonical reference. In your README, attribute the architectural mirror like: *"Triage mirrors the AWS DevOps Agent reference architecture published in Molumuri et al., AWS DevOps Blog, March 31, 2026."* Keep any direct quote under 15 words; paraphrase otherwise.

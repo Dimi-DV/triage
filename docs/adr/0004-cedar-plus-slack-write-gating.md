@@ -10,7 +10,7 @@ Triage's agent has tools that read AWS state and tools that mutate AWS state (re
 
 The published AWS DevOps Agent reference (Molumuri et al., AWS DevOps Blog, March 31, 2026) uses Cedar policy enforcement at AgentCore Gateway. Cedar evaluates allow/deny based on the action, target resource, environment, and contextual conditions, *before* the LLM's tool call reaches the AWS API. The LLM cannot prompt-inject around this because Cedar runs at the Gateway boundary, not in the agent's prompt.
 
-For Triage, Cedar alone is sufficient for most cases. But a portfolio project demonstrating mature operational thinking should show defense-in-depth, especially since the agent operates on real AWS resources that cost real money.
+For Triage, Cedar alone is sufficient for most cases. But a system demonstrating mature operational thinking should show defense-in-depth, especially since the agent operates on real AWS resources that cost real money.
 
 ## Decision
 
@@ -41,7 +41,7 @@ Practical consequence: Cedar gates *which tool the agent can invoke*, with ident
 
 ## Alternatives considered
 
-**Cedar alone, no Slack approval.** Matches AWS DevOps Agent's pattern as documented. Sufficient for a production system with a mature Cedar policy library. Rejected for Triage because (a) the portfolio scope means Cedar policies will be incomplete during the sprint, (b) human-in-the-loop is the conservative choice when you're proving a pattern works, and (c) the Slack approval is itself a portfolio-worthy artifact showing operational maturity.
+**Cedar alone, no Slack approval.** Matches AWS DevOps Agent's pattern as documented. Sufficient for a production system with a mature Cedar policy library. Rejected for Triage because (a) the portfolio scope means Cedar policies will be incomplete during the sprint, (b) human-in-the-loop is the conservative choice when you're proving a pattern works, and (c) the Slack approval itself demonstrates operational maturity — human-in-the-loop for writes.
 
 **Slack approval alone, no Cedar.** Simpler to implement. Rejected because Slack approval depends on a human reading the proposal correctly, and approval fatigue is real. Cedar provides a deterministic floor that catches the "the human glanced at it and clicked yes" failure mode.
 
@@ -54,13 +54,13 @@ Practical consequence: Cedar gates *which tool the agent can invoke*, with ident
 - Identity gating beyond IAM: even if another IAM principal acquires `InvokeGateway`, Cedar's exact-match `principal ==` clause refuses the call. This is *stricter* than AWS_IAM authorization alone.
 - Defense in depth: a Cedar policy bug doesn't immediately escape to AWS; the Slack approval gate catches it
 - Audit trail at S3 Object Lock means compliance-grade replay of any incident, regardless of how it ended
-- Matches the AWS DevOps Agent reference architecture, which is itself an interview talking point
+- Matches the AWS DevOps Agent reference architecture
 - Kill-switch is a single `cp _emergency-shutdown.cedar.disabled emergency-shutdown.cedar` + provision-agentcore away (forbid-wins semantics)
 
 **Negative:**
 - Slack approval adds latency. Acceptable for a SRE agent (incidents are minutes, not milliseconds). Mitigation: read-only investigation runs without the gate.
 - AgentCore Policy Engine's schema is more restrictive than vanilla Cedar (resource locked to the Gateway, principal locked to `AgentCore::IamEntity` or `AgentCore::OAuthUser`, Pydantic Literal fields unusable in `when` clauses). The v3 vision of "Cedar expresses fine-grained business rules on resource state" doesn't survive contact with the primitive — see the "Cannot express" list above.
-- Cedar policy authoring is a learnable skill; the project's portfolio asks the user to learn at least one non-trivial Cedar policy.
+- Cedar policy authoring is a learnable skill; the project includes at least one non-trivial Cedar policy.
 
 **Neutral:**
 - Future automation of approval (auto-approve well-understood patterns) is a known next-iteration item. Triage v1 ships with strictly manual Slack approval; auto-approve would be a separate ADR.

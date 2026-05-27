@@ -14,9 +14,9 @@ In February 2026, IBM Research and UC Berkeley published the **MAST (Multi-Agent
 - FM-2.X — Reasoning / action failures (e.g., FM-2.6 Reasoning-Action Mismatch)
 - FM-3.X — Verification / outcome failures (e.g., FM-3.3 Incorrect Verification)
 
-The MAST team also published an LLM-as-judge classifier that reaches **94% accuracy with 0.88 inter-annotator agreement** — high enough to use for reproducible annotation in a portfolio context.
+The MAST team also published an LLM-as-judge classifier that reaches **94% accuracy with 0.88 inter-annotator agreement** — high enough to use for reproducible annotation.
 
-Almost no other agent portfolio annotates failures this way. Most just say "the agent failed on this scenario" and move on.
+Few comparable agent implementations annotate failures this way. Most just say "the agent failed on this scenario" and move on.
 
 ## Decision
 
@@ -26,15 +26,15 @@ For every scenario in Triage's outage corpus where the agent fails, run the trac
 
 **Ad-hoc prose descriptions of failures.** What most agent demos do. Rejected because uncomparable: there's no way to say "Triage failed FM-3.3 in 4 of 7 misses, similar to Gemini-3-Flash's failure profile" if failures are described in unique prose each time.
 
-**Custom failure taxonomy.** Could invent one tailored to AIOps incident response specifically. Rejected because (a) inventing a taxonomy is a separate research project, (b) MAST is rigorous (94% classifier accuracy is reproducible), and (c) using a published taxonomy with a citation signals research literacy in a way "I made up my own" doesn't.
+**Custom failure taxonomy.** Could invent one tailored to AIOps incident response specifically. Rejected because (a) inventing a taxonomy is a separate research project, (b) MAST is rigorous (94% classifier accuracy is reproducible), and (c) using a published taxonomy with a citation is more credible than inventing one.
 
-**Skip failure annotation entirely.** Just report pass/fail. Rejected because the failure distribution is the artifact most likely to start an interview conversation: "Your eval shows 4 of 7 failures classified as FM-3.3 — what would you change to address that?" is the kind of question that goes well when the candidate has actually thought about it.
+**Skip failure annotation entirely.** Just report pass/fail. Rejected because the failure distribution is a high-value artifact: it turns "the agent failed" into "the agent failed FM-3.3 in 4 of 7 misses," which is actionable and comparable across models and published baselines.
 
 ## Consequences
 
 **Positive:**
-- The interview-grade payoff line is on the table: *"Our agent failed FM-3.3 in N of M misses. We'd address this in the next iteration by adding a Summarizer Agent and explicit verification step in the lead agent's prompt — the same intervention the IBM/Berkeley paper showed yields up to 53% improvement on ITBench."*
-- The MAST column in the eval table becomes a portfolio differentiator vs. other agent demos in the hiring pool
+- The payoff is concrete and actionable: *"The agent failed FM-3.3 in N of M misses; the next iteration would add a Summarizer Agent and an explicit verification step in the lead agent's prompt — the same intervention the IBM/Berkeley paper showed yields up to 53% improvement on ITBench."*
+- The MAST column in the eval table differentiates this work from agent demos that only report pass/fail
 - Failure analysis stays connected to published research, not invented in isolation
 - Reproducible — another evaluator running the same MAST classifier on the same traces would get ~94% agreement
 

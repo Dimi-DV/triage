@@ -20,11 +20,11 @@ Do not build a custom Python evaluation harness.
 
 ## Alternatives considered
 
-**Custom Python harness using boto3 + pytest.** Maximum pedagogical value — you understand exactly how the harness works. Rejected because (a) AgentCore Evaluations is the AWS-native pattern, (b) mirroring AWS-published methodology is itself a portfolio talking point, and (c) the differentiator moves up the stack — from "I built a harness" to "I designed the scenario corpus, the failure-mode annotation, and the comparison to published baselines." The latter is a stronger signal.
+**Custom Python harness using boto3 + pytest.** Maximum pedagogical value — you understand exactly how the harness works. Rejected because (a) AgentCore Evaluations is the AWS-native pattern, (b) mirroring AWS-published methodology is defensible, and (c) the differentiator moves up the stack — from "I built a harness" to "I designed the scenario corpus, the failure-mode annotation, and the comparison to published baselines." The latter is the stronger contribution.
 
 **Third-party agent eval framework** (e.g., DeepEval, RAGAS). Mature in the LLM eval space but not aligned with AgentCore vocabulary. Rejected for the same vocabulary-alignment reason that drove ADR-0002.
 
-**No eval framework at all — just manual review of agent outputs.** Tempting given the time pressure. Rejected because reproducibility is the differentiator. Manual review of 8–10 scenarios produces no comparison table, no failure-mode distribution, no baseline reference. The eval table is the single highest-leverage interview artifact in the project.
+**No eval framework at all — just manual review of agent outputs.** Tempting given the time pressure. Rejected because reproducibility is the differentiator. Manual review of 8–10 scenarios produces no comparison table, no failure-mode distribution, no baseline reference. The eval table is the project's single highest-leverage artifact.
 
 ## Consequences
 

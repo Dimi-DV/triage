@@ -35,7 +35,7 @@ The 2026 production standard for MCP server auth is **OAuth 2.1 + Resource Indic
 
 **For Triage:** AgentCore Identity provides this out of the box (decision doc Section 3.2 and notes file `agentcore-primitives-*.md`). You configure your MCP server to accept tokens signed by AgentCore Identity and to verify the Resource Indicator matches your server URL.
 
-**Don't roll custom auth.** API keys in env vars are a portfolio liability. The OAuth 2.1 path is the production standard.
+**Don't roll custom auth.** API keys in env vars are a security liability. The OAuth 2.1 path is the production standard.
 
 ## 2026 roadmap (what's coming)
 
