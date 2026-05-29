@@ -44,8 +44,6 @@ Decision doc with full architectural reasoning: [`docs/architecture-references/t
 
 ## Status
 
-🚧 **In active development.** Built over a focused 6-day sprint in May 2026.
-
 | Component | Status |
 |---|---|
 | Production AWS stack (Terraform) | Day 32 VPC/RDS/ACM + Day 33 ALB/WAF/Route 53/ECS + Day 34/35 ECS service + AgentCore Runtime — **deployed to AWS** |
