@@ -36,6 +36,13 @@ data "aws_caller_identity" "current" {}
 
 locals {
   name_prefix = "${var.environment}-${var.project_name}"
+
+  # Triage runs on a dedicated subdomain of the registered apex so it never
+  # touches the apex/www/ops records the personal site serves from the
+  # separately-managed parent zone. The parent zone delegates this subdomain
+  # to the Triage zone below via a single NS record; on destroy that delegation
+  # is removed and the parent zone is left exactly as it was.
+  triage_fqdn = "triage.${var.domain_name}"
 }
 
 # ---------------------------------------------------------------------------
@@ -311,59 +318,43 @@ resource "aws_db_instance" "main" {
 # Route 53 hosted zone
 # ---------------------------------------------------------------------------
 
-# Zone for the apex domain. Registrar NS delegation is auto-aligned to this
-# zone's name servers by aws_route53domains_registered_domain.main below —
-# so every destroy/reapply (which mints fresh hosted-zone NS shards) no
-# longer wedges ACM validation for 30+ min until the registrar is fixed by
-# hand. ACM still needs a few minutes for the new delegation to propagate
-# through the .dev TLD on a rebuild, but the apply itself is now unattended.
+# The parent zone for var.domain_name is managed OUTSIDE this stack — it serves
+# the personal apex/www/ops records — so we only READ it here and add a single
+# NS record to delegate the Triage subdomain. We deliberately do NOT manage
+# aws_route53domains_registered_domain anymore: repointing the registrar's NS
+# would hijack the whole apex away from the personal site. Subdomain delegation
+# from the parent zone keeps the apex completely untouched, and a later
+# `terraform destroy` removes only the delegation record + the subzone.
+data "aws_route53_zone" "parent" {
+  name         = var.domain_name
+  private_zone = false
+}
+
+# Triage's own hosted zone for the dedicated subdomain.
 resource "aws_route53_zone" "main" {
-  name = var.domain_name
+  name = local.triage_fqdn
 
   tags = {
     Name = "${local.name_prefix}-zone"
   }
 }
 
-# Tie the Route 53 registrar's NS records to the hosted zone. The domain
-# itself was registered via the Route 53 registrar console (see
-# project notes) — this resource only manages the *settings* of an
-# already-registered domain, it doesn't register or transfer. On first
-# apply Terraform takes ownership and reconciles; on every later apply
-# (including post-destroy rebuilds) it re-aligns the registrar to whatever
-# NS records the new hosted zone got assigned.
-resource "aws_route53domains_registered_domain" "main" {
-  domain_name = var.domain_name
-
-  dynamic "name_server" {
-    for_each = aws_route53_zone.main.name_servers
-    content {
-      name = name_server.value
-    }
-  }
-
-  # Preserve clientTransferProhibited (already set on the domain) so a
-  # hijack can't move the domain out from under us.
-  transfer_lock = true
+# Delegate ONLY the Triage subdomain from the parent zone to this subzone.
+# This is the single write into the personal zone; destroy removes just this
+# record and leaves every personal apex/www/ops record in place.
+resource "aws_route53_record" "triage_delegation" {
+  zone_id = data.aws_route53_zone.parent.zone_id
+  name    = local.triage_fqdn
+  type    = "NS"
+  ttl     = 300
+  records = aws_route53_zone.main.name_servers
 }
 
-# A records for apex + www, aliased to the ALB. The ALB resource is defined
-# below; Terraform resolves the dependency via the DAG, file order is fine.
-resource "aws_route53_record" "apex_a" {
+# A record for the Triage subdomain, aliased to the ALB. The ALB resource is
+# defined below; Terraform resolves the dependency via the DAG, file order is fine.
+resource "aws_route53_record" "triage_a" {
   zone_id = aws_route53_zone.main.zone_id
-  name    = var.domain_name
-  type    = "A"
-
-  alias {
-    name                   = aws_lb.main.dns_name
-    zone_id                = aws_lb.main.zone_id
-    evaluate_target_health = true
-  }
-}
-
-resource "aws_route53_record" "www_a" {
-  zone_id = aws_route53_zone.main.zone_id
-  name    = "www.${var.domain_name}"
+  name    = local.triage_fqdn
   type    = "A"
 
   alias {
@@ -378,9 +369,8 @@ resource "aws_route53_record" "www_a" {
 # ---------------------------------------------------------------------------
 
 resource "aws_acm_certificate" "main" {
-  domain_name               = var.domain_name
-  subject_alternative_names = ["www.${var.domain_name}"]
-  validation_method         = "DNS"
+  domain_name       = local.triage_fqdn
+  validation_method = "DNS"
 
   lifecycle {
     create_before_destroy = true
@@ -394,9 +384,9 @@ resource "aws_acm_certificate" "main" {
 locals {
   # Static keys for the cert validation records — domain_validation_options is
   # known-after-apply, so deriving for_each keys from it breaks terraform import
-  # and -target. We know the cert's subjects (apex + www) at plan time; key the
-  # for_each on those and look up the apply-time validation values by domain.
-  acm_validation_domains = toset([var.domain_name, "www.${var.domain_name}"])
+  # and -target. The cert's only subject is the Triage subdomain; key the
+  # for_each on it and look up the apply-time validation value by domain.
+  acm_validation_domains = toset([local.triage_fqdn])
 }
 
 resource "aws_route53_record" "acm_validation" {
@@ -415,6 +405,10 @@ resource "aws_route53_record" "acm_validation" {
 resource "aws_acm_certificate_validation" "main" {
   certificate_arn         = aws_acm_certificate.main.arn
   validation_record_fqdns = [for r in aws_route53_record.acm_validation : r.fqdn]
+
+  # Ensure the subdomain is delegated from the parent zone before we wait on
+  # ACM — otherwise ACM cannot resolve the validation record.
+  depends_on = [aws_route53_record.triage_delegation]
 }
 
 # ---------------------------------------------------------------------------

@@ -44,7 +44,7 @@ output "route53_zone_id" {
 }
 
 output "route53_name_servers" {
-  description = "Route 53 NS records for the hosted zone. Registrar NS is kept in sync by aws_route53domains_registered_domain.main — no manual delegation step needed."
+  description = "Route 53 NS records for the Triage subdomain zone. The parent zone delegates the subdomain to these via aws_route53_record.triage_delegation; the registrar and the apex are never touched."
   value       = aws_route53_zone.main.name_servers
 }
 
@@ -99,7 +99,7 @@ output "mcp_server_service_name" {
 
 output "mcp_endpoint_url" {
   description = "Externally addressable Streamable HTTP endpoint for the MCP server"
-  value       = "https://${var.domain_name}/mcp"
+  value       = "https://${local.triage_fqdn}/mcp"
 }
 
 output "slack_bot_token_secret_arn" {
